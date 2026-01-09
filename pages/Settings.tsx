@@ -1,9 +1,17 @@
+
 import React, { useState, useEffect } from 'react';
-import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag, Eye, EyeOff, Lock, QrCode, Copy, Check } from 'lucide-react';
-import { getStoredSettings, saveSettings, getBalance, fetchLiveRate } from '../services/smmProvider';
+import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag, Eye, EyeOff, Lock, QrCode, Copy, Check, LogOut, Unlock, FileJson } from 'lucide-react';
+import { getStoredSettings, saveSettings, getBalance, fetchLiveRate, isAdminUnlocked, setAdminUnlocked, fetchProviderServices } from '../services/smmProvider';
+import { APP_CONFIG } from '../constants';
 import { useNavigate } from 'react-router-dom';
 
 const Settings: React.FC = () => {
+  // AUTH STATE
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // SETTINGS STATE
   const [apiKey, setApiKey] = useState('');
   const [proxyUrl, setProxyUrl] = useState('');
   const [useProxy, setUseProxy] = useState(false);
@@ -18,10 +26,23 @@ const Settings: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRateLoading, setIsRateLoading] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
+
+  // EXPORT STATE
+  const [exportData, setExportData] = useState('');
+  const [copiedExport, setCopiedExport] = useState(false);
   
   const navigate = useNavigate();
 
   useEffect(() => {
+    const isUnlocked = isAdminUnlocked();
+    setIsAuthenticated(isUnlocked);
+    
+    if (isUnlocked) {
+        loadSettings();
+    }
+  }, []);
+
+  const loadSettings = () => {
     const settings = getStoredSettings();
     setApiKey(settings.apiKey);
     setProxyUrl(settings.proxyUrl);
@@ -34,7 +55,27 @@ const Settings: React.FC = () => {
     if(settings.apiKey) {
       checkConnection();
     }
-  }, []);
+  }
+
+  const handleLogin = (e: React.FormEvent) => {
+      e.preventDefault();
+      // Compare raw pin directly as requested
+      if (pinInput === APP_CONFIG.ADMIN_PIN) {
+          setAdminUnlocked(true);
+          setIsAuthenticated(true);
+          loadSettings();
+          setAuthError('');
+      } else {
+          setAuthError('Incorrect PIN');
+          setPinInput('');
+      }
+  };
+
+  const handleLogout = () => {
+      setAdminUnlocked(false);
+      setIsAuthenticated(false);
+      navigate('/');
+  };
 
   const checkConnection = async () => {
     setIsLoading(true);
@@ -72,272 +113,318 @@ const Settings: React.FC = () => {
       setStatus({ type: 'error', msg: 'API Key cannot be empty.' });
       return;
     }
-    if (exchangeRate <= 0) {
-      setStatus({ type: 'error', msg: 'Exchange rate must be greater than 0.' });
-      return;
-    }
     
-    // Save settings (this now dispatches an event to update Layout)
     saveSettings(apiKey, proxyUrl, useProxy, exchangeRate, autoExchangeRate, globalDiscount, hideSettings, upiId);
     
     setStatus({ type: 'success', msg: 'Settings saved successfully!' });
-    
-    // If user hid the settings, we should probably navigate them to the dashboard/catalog 
-    // after a moment so they don't feel "stuck" on a hidden page.
-    if (hideSettings) {
-        setTimeout(() => {
-            navigate('/');
-        }, 1500);
-    } else {
-        // Just clear success message after a while
-        setTimeout(() => {
-             setStatus({ type: null, msg: '' });
-        }, 2000);
-    }
+    setTimeout(() => {
+         setStatus({ type: null, msg: '' });
+    }, 2000);
   };
 
+  const handleGenerateCatalog = async () => {
+      if (!apiKey) return setStatus({ type: 'error', msg: 'API Key required to generate catalog.' });
+      
+      setIsLoading(true);
+      try {
+          // fetchProviderServices already applies the 1.5x Margin and Exchange Rate
+          const services = await fetchProviderServices();
+          
+          // We remove 'originalRate' so clients cannot see the provider cost in the source code
+          const safeServices = services.map(s => ({
+              id: s.id,
+              platform: s.platform,
+              type: s.type,
+              name: s.name,
+              rate: s.rate, // This is the Selling Price (Cost * 1.5)
+              min: s.min,
+              max: s.max,
+              description: s.description,
+              category: s.category
+          }));
+
+          const jsonString = JSON.stringify(safeServices, null, 2);
+          const exportString = `// Paste this into constants.ts replacing MOCK_SERVICES\nexport const MOCK_SERVICES: Service[] = ${jsonString};`;
+          
+          setExportData(exportString);
+          setStatus({ type: 'success', msg: 'Catalog Generated! It includes your 50% Margin/Tax.' });
+      } catch (e: any) {
+          setStatus({ type: 'error', msg: 'Failed to fetch services: ' + e.message });
+      } finally {
+          setIsLoading(false);
+      }
+  };
+
+  const handleCopyExport = () => {
+      navigator.clipboard.writeText(exportData);
+      setCopiedExport(true);
+      setTimeout(() => setCopiedExport(false), 2000);
+  };
+
+  // 🔒 LOCKED VIEW (PIN REQUIRED)
+  if (!isAuthenticated) {
+      return (
+          <div className="max-w-md mx-auto mt-20 px-4 animate-in fade-in zoom-in duration-300">
+              <div className="bg-white p-10 rounded-3xl shadow-2xl border border-slate-100 text-center">
+                  <div className="w-20 h-20 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-slate-900/20">
+                      <Lock size={36} className="text-white" />
+                  </div>
+                  <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter">Admin Access</h2>
+                  <p className="text-slate-500 text-sm mb-8 font-medium">Enter the security PIN to configure API settings.</p>
+                  
+                  <form onSubmit={handleLogin} className="space-y-6">
+                      <input 
+                        type="password" 
+                        value={pinInput}
+                        onChange={(e) => setPinInput(e.target.value)}
+                        placeholder="Enter PIN"
+                        className="w-full text-center text-3xl tracking-[0.5em] font-bold p-4 border-2 border-slate-200 rounded-2xl focus:ring-4 focus:ring-slate-900/10 focus:border-slate-900 outline-none transition-all placeholder:tracking-normal placeholder:text-lg placeholder:font-normal placeholder:text-slate-300"
+                        autoFocus
+                      />
+                      {authError && <p className="text-rose-500 text-sm font-bold animate-pulse flex items-center justify-center gap-1"><AlertTriangle size={14}/> {authError}</p>}
+                      <button 
+                        type="submit"
+                        className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-brand-600 transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 uppercase tracking-wide text-xs"
+                      >
+                          <Unlock size={18} /> Unlock Settings
+                      </button>
+                  </form>
+                  <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                      Default PIN is set in <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-600 font-mono">constants.ts</code>
+                  </p>
+              </div>
+          </div>
+      );
+  }
+
+  // 🔓 UNLOCKED VIEW (SETTINGS)
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-800">API Configuration</h2>
-        <p className="text-slate-500 mt-1">Connect your Sandyinsta account to enable real-time pricing and ordering.</p>
+    <div className="max-w-3xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex items-center justify-between pb-6 border-b border-slate-200">
+          <div>
+            <h2 className="text-3xl font-black text-slate-900 flex items-center gap-3 tracking-tighter">
+                Configuration
+                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 tracking-wide uppercase">Admin Unlocked</span>
+            </h2>
+            <p className="text-slate-500 mt-2 text-lg font-medium">Connect provider API and manage store settings.</p>
+          </div>
+          <button onClick={handleLogout} className="text-xs font-bold text-rose-600 flex items-center gap-2 hover:bg-rose-50 px-4 py-2.5 rounded-xl transition-colors uppercase tracking-wide">
+              <LogOut size={16} /> Lock & Exit
+          </button>
       </div>
 
       {status.msg && (
-        <div className={`p-4 rounded-lg border flex items-center gap-2 ${
-          status.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
+        <div className={`p-4 rounded-xl border flex items-center gap-3 font-bold text-sm ${
+          status.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
         }`}>
           {status.type === 'success' ? <ShieldCheck size={20} /> : <AlertTriangle size={20} />}
           {status.msg}
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 space-y-6">
+      <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+        <div className="p-8 space-y-8">
           
           {/* API KEY INPUT */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-              <Key size={16} /> Sandyinsta API Key
+          <section>
+            <label className="block text-xs font-extrabold text-slate-500 mb-3 flex items-center gap-2 uppercase tracking-widest">
+              <Key size={14} className="text-brand-500" /> Provider API Key
             </label>
-            <input 
-              type="text" 
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="e.g. 673fa2ecabbe3f543230228aa..."
-              className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none font-mono text-sm"
-            />
-            <p className="text-xs text-slate-500 mt-2">
-              You can find this in your Sandyinsta Account {'>'} Settings {'>'} API Key.
-            </p>
-          </div>
+            <div className="relative">
+                <input 
+                type="text" 
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="e.g. 673fa2ecabbe3f543230228aa..."
+                className="w-full p-4 pl-5 border border-slate-200 rounded-xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none font-mono text-xs font-medium text-slate-700 transition-all"
+                />
+            </div>
+            <p className="text-[10px] font-bold text-slate-400 mt-2 ml-1 uppercase tracking-wide">Key from Sandyinsta / SMMDevil (Settings &gt; API)</p>
+          </section>
 
-          <div className="border-t border-slate-100 my-4"></div>
+          <hr className="border-slate-100" />
 
           {/* PAYMENT UPI CONFIG */}
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-             <label className="block text-sm font-medium text-blue-900 mb-2 flex items-center gap-2">
-                <QrCode size={16} /> Payment Setup (UPI QR)
+          <section className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100">
+             <label className="block text-xs font-extrabold text-blue-900 mb-3 flex items-center gap-2 uppercase tracking-widest">
+                <QrCode size={14} /> Payment Setup (UPI QR)
              </label>
-             <div className="space-y-2">
-                 <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      value={upiId}
-                      onChange={(e) => setUpiId(e.target.value)}
-                      placeholder="e.g. sandeep@okaxis"
-                      className="w-full p-2 border border-blue-200 rounded text-blue-900 placeholder-blue-300 outline-none focus:ring-2 focus:ring-blue-400 font-mono"
-                    />
-                    <button
-                        onClick={handleCopyUpi}
-                        className="bg-blue-200 hover:bg-blue-300 text-blue-800 p-2 rounded transition-colors flex items-center justify-center min-w-[40px] shadow-sm"
-                        title="Copy UPI ID"
-                        type="button"
-                    >
-                        {copiedUpi ? <Check size={18} /> : <Copy size={18} />}
-                    </button>
-                 </div>
-                <div className="text-xs text-blue-700 leading-relaxed">
-                   Enter your <strong>UPI ID</strong> (VPA). The app will automatically generate a QR code and show a "Payment Info" button in the sidebar for your clients to scan and pay.
-                   <br/>
-                   <span className="opacity-75">Leave empty to disable the payment button.</span>
-                </div>
-             </div>
-          </div>
-
-          <div className="border-t border-slate-100 my-4"></div>
-          
-          {/* STOREWIDE DISCOUNT */}
-          <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-             <label className="block text-sm font-medium text-purple-900 mb-2 flex items-center gap-2">
-                <Tag size={16} /> Storewide Sale / Global Discount (%)
-             </label>
-             <div className="flex gap-4">
-                 <input 
-                  type="number" 
-                  value={globalDiscount}
-                  onChange={(e) => setGlobalDiscount(parseFloat(e.target.value))}
-                  min="0"
-                  max="99"
-                  className="w-24 p-2 border border-purple-200 rounded text-center font-bold text-purple-900 outline-none focus:ring-2 focus:ring-purple-400"
+             <div className="flex gap-3">
+                <input 
+                    type="text" 
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    placeholder="e.g. sandeep@okaxis"
+                    className="flex-1 p-3 border border-blue-200 rounded-xl text-blue-900 placeholder-blue-300 outline-none focus:ring-4 focus:ring-blue-500/20 font-mono font-medium text-sm"
                 />
-                <div className="text-xs text-purple-700 leading-relaxed">
-                   Apply a percentage discount to all services in your catalog.<br/>
-                   <span className="opacity-75">Useful for "Seasonal Sales" or when you want to lower your margins globally. Set to 0 to disable.</span>
-                </div>
-             </div>
-          </div>
-
-          <div className="border-t border-slate-100 my-4"></div>
-
-          {/* HIDE SETTINGS TOGGLE */}
-          <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                    {hideSettings ? <EyeOff size={16} className="text-slate-500"/> : <Eye size={16} className="text-slate-500"/>}
-                    Hide 'Settings' from Sidebar (Client Mode)
-                </label>
-                <button 
-                    onClick={() => setHideSettings(!hideSettings)}
-                    className={`w-10 h-5 rounded-full relative transition-colors ${hideSettings ? 'bg-slate-800' : 'bg-slate-300'}`}
+                <button
+                    onClick={handleCopyUpi}
+                    className="bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 p-3 rounded-xl transition-colors shadow-sm"
                 >
-                    <span className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${hideSettings ? 'left-6' : 'left-1'}`} />
+                    {copiedUpi ? <Check size={20} /> : <Copy size={20} />}
                 </button>
-            </div>
-            <div className="text-xs text-slate-500">
-                <p>If enabled, the "API Settings" link will vanish from the menu after saving.</p>
-                <p className="mt-1 font-bold text-slate-600 flex items-center gap-1">
-                    <Lock size={12}/> To access this page again, you must type <code className="bg-slate-200 px-1 rounded">/settings</code> in your browser URL.
-                </p>
-            </div>
-          </div>
+             </div>
+             <p className="text-[10px] font-bold text-blue-400 mt-2 uppercase tracking-wide">This ID will generate the QR code shown to clients.</p>
+          </section>
 
-          <div className="border-t border-slate-100 my-4"></div>
+          <hr className="border-slate-100" />
+          
+          {/* STOREWIDE DISCOUNT & RATE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* DISCOUNT */}
+              <section>
+                 <label className="block text-xs font-extrabold text-purple-900 mb-3 flex items-center gap-2 uppercase tracking-widest">
+                    <Tag size={14} className="text-purple-500" /> Global Markup/Discount
+                 </label>
+                 <div className="flex items-center gap-3">
+                     <div className="relative w-full">
+                        <input 
+                            type="number" 
+                            value={globalDiscount}
+                            onChange={(e) => setGlobalDiscount(parseFloat(e.target.value))}
+                            min="0"
+                            max="99"
+                            className="w-full p-4 border border-purple-100 rounded-xl font-bold text-purple-900 outline-none focus:ring-4 focus:ring-purple-500/10 focus:border-purple-300 bg-purple-50/30 text-lg"
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-400 font-black text-sm uppercase tracking-wide">% OFF</span>
+                     </div>
+                 </div>
+              </section>
 
-          {/* EXCHANGE RATE */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                    <RefreshCw size={16} /> Currency Exchange Rate
-                </label>
-                <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold ${autoExchangeRate ? 'text-green-600' : 'text-slate-400'}`}>
-                        {autoExchangeRate ? 'Auto Live Rate' : 'Manual Mode'}
-                    </span>
+              {/* EXCHANGE RATE */}
+              <section>
+                <div className="flex items-center justify-between mb-3">
+                    <label className="text-xs font-extrabold text-slate-700 flex items-center gap-2 uppercase tracking-widest">
+                        <RefreshCw size={14} className="text-brand-500" /> Currency Rate (INR)
+                    </label>
                     <button 
                         onClick={() => {
                             const newVal = !autoExchangeRate;
                             setAutoExchangeRate(newVal);
                             if (newVal) handleUpdateRate();
                         }}
-                        className={`w-10 h-5 rounded-full relative transition-colors ${autoExchangeRate ? 'bg-green-500' : 'bg-slate-300'}`}
+                        className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide transition-colors ${autoExchangeRate ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
                     >
-                        <span className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoExchangeRate ? 'left-6' : 'left-1'}`} />
+                        {autoExchangeRate ? 'Auto Update On' : 'Manual Mode'}
                     </button>
                 </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="flex-1 relative">
-                <input 
-                  type="number" 
-                  value={exchangeRate}
-                  onChange={(e) => setExchangeRate(parseFloat(e.target.value))}
-                  disabled={autoExchangeRate}
-                  step="0.01"
-                  min="0.01"
-                  className={`w-full p-3 border rounded-lg outline-none font-mono text-sm ${
-                      autoExchangeRate ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-white border-slate-300 focus:ring-2 focus:ring-brand-500'
-                  }`}
-                />
-                {autoExchangeRate && (
-                    <div className="absolute right-3 top-3.5">
-                        {isRateLoading ? <RefreshCw size={16} className="animate-spin text-slate-400"/> : <Zap size={16} className="text-green-500" />}
-                    </div>
-                )}
-              </div>
-              <div className="text-sm text-slate-500 flex-1">
-                <p>1 Provider Unit = <strong>{exchangeRate}</strong> Your Currency</p>
-                {autoExchangeRate ? (
-                    <p className="text-xs mt-1 text-green-600">Rate is automatically synced from global markets.</p>
-                ) : (
-                    <p className="text-xs mt-1 text-slate-400">If Provider is USD and you use INR, set to <strong>87</strong>.</p>
-                )}
-              </div>
-            </div>
+                
+                <div className="relative">
+                    <input 
+                      type="number" 
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(parseFloat(e.target.value))}
+                      disabled={autoExchangeRate}
+                      step="0.01"
+                      min="0.01"
+                      className={`w-full p-4 border rounded-xl outline-none font-mono text-lg font-bold transition-all ${
+                          autoExchangeRate ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-200 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 text-slate-900'
+                      }`}
+                    />
+                    {autoExchangeRate && (
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                            {isRateLoading ? <RefreshCw size={16} className="animate-spin text-slate-400"/> : <Zap size={16} className="text-emerald-500" />}
+                        </div>
+                    )}
+                </div>
+              </section>
           </div>
 
-          <div className="border-t border-slate-100 my-4"></div>
+          <hr className="border-slate-100" />
 
           {/* CONNECTION MODE TOGGLE */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                <Globe size={16} /> Connection Mode
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-xs font-extrabold text-slate-700 flex items-center gap-2 uppercase tracking-widest">
+                <Globe size={14} className="text-slate-400" /> Proxy Settings
               </label>
               <button 
                 onClick={() => setUseProxy(!useProxy)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${useProxy ? 'bg-slate-200 text-slate-700' : 'bg-green-100 text-green-700'}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all uppercase tracking-wide ${useProxy ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'}`}
               >
-                {useProxy ? <ToggleLeft size={24} className="text-slate-500" /> : <ToggleRight size={24} />}
-                {useProxy ? 'Using Proxy' : 'Direct Connection'}
+                {useProxy ? <ToggleLeft size={20} className="text-slate-400" /> : <ToggleRight size={20} />}
+                {useProxy ? 'Enabled' : 'Disabled (Direct)'}
               </button>
             </div>
             
-            {!useProxy && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 mb-4">
-                <p className="font-bold mb-1">✅ Recommended Setup (Fixes 99% of errors):</p>
-                <ol className="list-decimal list-inside space-y-1 ml-1">
-                  <li>Keep this switch on <strong>Direct Connection</strong>.</li>
-                  <li>Install the <a href="https://chromewebstore.google.com/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf" target="_blank" rel="noreferrer" className="underline font-bold text-blue-700 inline-flex items-center gap-0.5">Allow CORS <ExternalLink size={10} /></a> extension.</li>
-                  <li>Click the extension icon in your browser to turn it ON.</li>
-                  <li>Save this configuration.</li>
-                </ol>
-              </div>
-            )}
-            
             {useProxy && (
-               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
-                  <strong>Warning:</strong> Public proxies are often blocked by SMM providers (Cloudflare). If you cannot order, switch to "Direct Connection" above.
-               </div>
-            )}
-
-            {useProxy && (
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">
-                  Proxy URL (Advanced)
-                </label>
+              <div className="mt-2 animate-in slide-in-from-top-2">
                 <input 
                   type="text" 
                   value={proxyUrl}
                   onChange={(e) => setProxyUrl(e.target.value)}
                   placeholder="https://corsproxy.io/?"
-                  className="w-full p-2 border border-slate-300 rounded bg-slate-50 text-slate-600 font-mono text-xs outline-none"
+                  className="w-full p-3 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-600 font-mono text-xs outline-none focus:border-slate-400 transition-colors"
                 />
               </div>
             )}
-          </div>
+          </section>
+
+           <hr className="border-slate-100" />
+
+           {/* EXPORT CATALOG FOR CLIENT DISTRIBUTION */}
+           <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100">
+               <div className="flex items-start gap-4">
+                   <div className="bg-amber-100 p-2 rounded-lg shrink-0">
+                       <FileJson className="text-amber-600" size={24} />
+                   </div>
+                   <div className="flex-1">
+                       <h3 className="font-bold text-amber-900 text-lg tracking-tight">Catalog Generator</h3>
+                       <p className="text-sm text-amber-800/80 mt-1 leading-relaxed font-medium">
+                           Create a safe, client-facing version of your service list. This removes your provider costs and applies your configured markup automatically.
+                       </p>
+                       
+                       <button 
+                           onClick={handleGenerateCatalog}
+                           disabled={isLoading}
+                           className="mt-4 bg-amber-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center gap-2 active:scale-95 uppercase tracking-wide"
+                       >
+                           {isLoading ? <RefreshCw className="animate-spin" size={16} /> : <FileJson size={16} />}
+                           Generate Public JSON
+                       </button>
+
+                       {exportData && (
+                           <div className="mt-6 animate-in fade-in slide-in-from-top-2">
+                               <div className="relative group">
+                                   <textarea 
+                                       value={exportData}
+                                       readOnly
+                                       className="w-full h-40 p-4 text-[10px] font-mono bg-white border border-amber-200 rounded-xl outline-none text-slate-600 resize-none shadow-inner"
+                                       onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                                   />
+                                   <button 
+                                       onClick={handleCopyExport}
+                                       className="absolute top-3 right-3 bg-slate-900 text-white px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors text-[10px] font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 shadow-md uppercase tracking-wide"
+                                   >
+                                       {copiedExport ? <Check size={12} /> : <Copy size={12} />}
+                                       {copiedExport ? 'Copied' : 'Copy'}
+                                   </button>
+                               </div>
+                               <p className="text-[10px] text-amber-700 mt-3 font-bold flex items-center gap-2 uppercase tracking-wide">
+                                   <span className="w-5 h-5 bg-amber-200 text-amber-800 rounded-full flex items-center justify-center text-[10px] font-bold">!</span>
+                                   Paste this code into <code>constants.ts</code> to update the public catalog.
+                               </p>
+                           </div>
+                       )}
+                   </div>
+               </div>
+           </div>
           
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-             <div className="text-sm">
-                {isLoading && <span className="text-slate-500">Checking connection...</span>}
+          <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
+             <div className="text-sm font-medium">
+                {isLoading && <span className="text-slate-400 flex items-center gap-2 font-bold uppercase tracking-wide text-xs"><RefreshCw size={14} className="animate-spin"/> Checking...</span>}
                 {!isLoading && balanceData && (
-                   <span className="text-green-600 font-medium flex items-center gap-1">
-                      <ShieldCheck size={16} /> Connected! Balance: {balanceData.balance} {balanceData.currency}
+                   <span className="text-emerald-600 flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100 text-xs font-bold uppercase tracking-wide">
+                      <ShieldCheck size={16} /> Connected! Balance: <span className="font-mono text-sm">{balanceData.balance} {balanceData.currency}</span>
                    </span>
-                )}
-                {!isLoading && !balanceData && apiKey && (
-                    <span className="text-red-500 font-medium">
-                        Not connected. Check Extension?
-                    </span>
                 )}
              </div>
              
              <button 
               onClick={handleSave}
-              className="bg-brand-600 text-white px-6 py-2.5 rounded-lg hover:bg-brand-700 transition-colors font-medium flex items-center gap-2"
+              className="bg-brand-600 text-white px-8 py-3.5 rounded-xl hover:bg-brand-700 transition-all font-bold flex items-center gap-2 shadow-lg shadow-brand-500/30 active:scale-[0.98] uppercase tracking-wide text-xs"
              >
-               <Save size={18} /> Save Configuration
+               <Save size={18} /> Save Settings
              </button>
           </div>
 

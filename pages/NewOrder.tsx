@@ -1,19 +1,23 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { MOCK_SERVICES } from '../constants';
+import { MOCK_SERVICES, APP_CONFIG } from '../constants';
 import { Platform, Service } from '../types';
-import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle, ShieldCheck, Tag } from 'lucide-react';
-import { fetchProviderServices, placeProviderOrder, getStoredSettings } from '../services/smmProvider';
+import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle, ShieldCheck, Tag, MessageCircle, Eye, EyeOff, ShoppingBag } from 'lucide-react';
+import { fetchProviderServices, placeProviderOrder, getStoredSettings, isAdminUnlocked } from '../services/smmProvider';
 import { Link, useSearchParams } from 'react-router-dom';
 
 const NewOrder: React.FC = () => {
   // Services State
-  const [allServices, setAllServices] = useState<Service[]>(MOCK_SERVICES);
-  const [isLive, setIsLive] = useState(false);
+  const [catalogServices, setCatalogServices] = useState<Service[]>(MOCK_SERVICES); // The Public List
+  const [liveServices, setLiveServices] = useState<Service[]>([]); // The Admin/API List
+  const [displayedServices, setDisplayedServices] = useState<Service[]>(MOCK_SERVICES); // What is currently shown
+  
+  const [isLiveConnection, setIsLiveConnection] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [exchangeRate, setExchangeRate] = useState(1);
-  const [useProxy, setUseProxy] = useState(true);
-  const [globalDiscount, setGlobalDiscount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  // Toggle for Admin to see what clients see
+  const [viewMode, setViewMode] = useState<'ADMIN' | 'CLIENT'>('CLIENT');
 
   // Form State
   const [selectedPlatform, setSelectedPlatform] = useState<string>(Platform.INSTAGRAM);
@@ -23,9 +27,8 @@ const NewOrder: React.FC = () => {
   const [manualDiscount, setManualDiscount] = useState<number>(0);
   
   // UI State
-  const [charge, setCharge] = useState(0); // Client Charge (Final)
-  const [baseCharge, setBaseCharge] = useState(0); // Charge before manual discount
-  const [providerCost, setProviderCost] = useState(0); // Standard cost
+  const [charge, setCharge] = useState(0); 
+  const [providerCost, setProviderCost] = useState(0);
   
   const [copied, setCopied] = useState(false);
   const [orderResult, setOrderResult] = useState<{success: boolean, message: string} | null>(null);
@@ -34,75 +37,81 @@ const NewOrder: React.FC = () => {
   // URL Params
   const [searchParams] = useSearchParams();
 
-  // Check API Key on mount
   useEffect(() => {
-    refreshSettings();
-    if(getStoredSettings().apiKey) {
+    const adminStatus = isAdminUnlocked();
+    setIsAdmin(adminStatus);
+    
+    // Default Behavior:
+    // If Admin -> Try to load Live Data, set view to Admin.
+    // If Client -> Set view to Client, use Mock Data.
+    if(adminStatus && getStoredSettings().apiKey) {
       loadApiServices();
+      setViewMode('ADMIN');
+    } else {
+      setViewMode('CLIENT');
+      setDisplayedServices(MOCK_SERVICES);
     }
   }, []);
 
-  const refreshSettings = () => {
-      const settings = getStoredSettings();
-      setHasApiKey(!!settings.apiKey);
-      setUseProxy(settings.useProxy);
-      setExchangeRate(settings.exchangeRate);
-      setGlobalDiscount(settings.globalDiscount || 0);
-  }
+  // When viewMode changes, swap the dataset
+  useEffect(() => {
+    if (viewMode === 'ADMIN' && liveServices.length > 0) {
+        setDisplayedServices(liveServices);
+    } else {
+        setDisplayedServices(catalogServices);
+    }
+    // Reset selection when switching modes to avoid ID conflicts
+    setSelectedServiceId(0);
+  }, [viewMode, liveServices, catalogServices]);
 
-  // Load API Services Handler
   const loadApiServices = async () => {
     setIsLoading(true);
-    setOrderResult(null); // Clear previous errors on reload
+    setOrderResult(null); 
     try {
       const data = await fetchProviderServices();
-      // After fetch, rate might have auto-updated in storage, so refresh our local state for the UI
-      refreshSettings();
-      
       if(data && data.length > 0) {
-        setAllServices(data);
-        setIsLive(true);
+        setLiveServices(data);
+        setIsLiveConnection(true);
+        // If we are currently in Admin mode, update the display immediately
+        if (viewMode === 'ADMIN') {
+            setDisplayedServices(data);
+        }
       }
     } catch (e: any) {
       console.error("Failed to load services", e);
-      // Show error but don't crash
-      setOrderResult({
-          success: false,
-          message: `Connection Failed: ${e.message || "Could not fetch services."} Check Settings.`
-      });
+      // Fallback to client mode if API fails
+      if (viewMode === 'ADMIN') {
+          setOrderResult({ success: false, message: "API Connection Failed. Switched to Offline Catalog." });
+          setViewMode('CLIENT');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle URL Params for deep linking
   useEffect(() => {
     const sidParam = searchParams.get('serviceId');
-    if (sidParam && allServices.length > 0) {
+    if (sidParam && displayedServices.length > 0) {
       const serviceId = parseInt(sidParam);
-      const service = allServices.find(s => s.id === serviceId);
-      
+      const service = displayedServices.find(s => s.id === serviceId);
       if (service) {
         setSelectedPlatform(service.platform);
         setSelectedServiceId(serviceId);
       }
-    } else if (allServices.length > 0 && selectedServiceId === 0) {
-        // Initial fallback if no URL param
-        const first = allServices.find(s => s.platform === Platform.INSTAGRAM);
+    } else if (displayedServices.length > 0 && selectedServiceId === 0) {
+        const first = displayedServices.find(s => s.platform === Platform.INSTAGRAM);
         if (first) setSelectedServiceId(first.id);
     }
-  }, [searchParams, allServices]);
+  }, [searchParams, displayedServices]);
 
-  // Filter services by platform
   const availableServices = useMemo(() => {
-    return allServices.filter(s => s.platform === selectedPlatform);
-  }, [selectedPlatform, allServices]);
+    return displayedServices.filter(s => s.platform === selectedPlatform);
+  }, [selectedPlatform, displayedServices]);
 
-  // Set default service when platform changes
   useEffect(() => {
     if (availableServices.length > 0) {
-        const currentServiceExistsInNewPlatform = availableServices.find(s => s.id === selectedServiceId);
-        if (!currentServiceExistsInNewPlatform) {
+        const currentServiceExists = availableServices.find(s => s.id === selectedServiceId);
+        if (!currentServiceExists) {
              setSelectedServiceId(availableServices[0].id);
         }
     } else {
@@ -110,92 +119,71 @@ const NewOrder: React.FC = () => {
     }
   }, [selectedPlatform, availableServices]);
 
-  // Get current service object
   const currentService = useMemo(() => {
-    return allServices.find(s => s.id === selectedServiceId);
-  }, [selectedServiceId, allServices]);
+    return displayedServices.find(s => s.id === selectedServiceId);
+  }, [selectedServiceId, displayedServices]);
 
-  // Calculate charge
   useEffect(() => {
     if (currentService && quantity) {
       const rawPrice = (quantity / 1000) * currentService.rate;
-      setBaseCharge(rawPrice);
       
-      // Apply Manual Discount
       const finalPrice = manualDiscount > 0 
          ? rawPrice * (1 - manualDiscount / 100)
          : rawPrice;
       
       setCharge(finalPrice);
 
+      // Provider Cost (Only exists in Live Data / Admin Mode)
       if (currentService.originalRate) {
         const standardCost = (quantity / 1000) * currentService.originalRate;
         setProviderCost(standardCost);
+      } else {
+        setProviderCost(0);
       }
     } else {
       setCharge(0);
-      setBaseCharge(0);
       setProviderCost(0);
     }
   }, [quantity, currentService, manualDiscount]);
 
   const handleCopy = () => {
     if (!currentService || !quantity) return;
-    
-    const text = `
-SERVICE: ${currentService.name}
-LINK: ${link || 'N/A'}
-QUANTITY: ${quantity}
-PRICE: ${formatINR(charge)} ${manualDiscount > 0 ? `(Inc. ${manualDiscount}% Off)` : ''}
-    `.trim();
-
+    const text = `SERVICE: ${currentService.name}\nLINK: ${link || 'N/A'}\nQUANTITY: ${quantity}\nPRICE: ${formatINR(charge)}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handlePlaceOrder = async () => {
-    // 1. Validation Checks
-    if (!currentService) {
-        alert("Please select a valid service.");
-        return;
-    }
-    if (!quantity || quantity <= 0) {
-        alert("Please enter a valid quantity.");
-        return;
-    }
-    if (!link) {
-        alert("Please enter the target link (URL).");
-        return;
-    }
-
-    // 2. Environment Check
-    if (!hasApiKey) {
-        alert("Action Required: Please go to 'API Settings' and enter your Sandyinsta API Key first.");
-        return;
-    }
-
-    if (!isLive) {
-        // User has key but services failed to load (Mock Data is shown)
-        alert("Connection Error: Services are not synced with the provider. Please click 'Refresh' or check your Connection Mode in Settings.");
-        loadApiServices(); // Try to reconnect
-        return;
-    }
-
-    // 3. Confirmation
-    const confirmMsg = `
-CONFIRM ORDER?
-
-Service: ${currentService.name}
-Quantity: ${quantity}
-${manualDiscount > 0 ? `Discount Applied: ${manualDiscount}%` : ''}
-
---- CLIENT PAYS: ${formatINR(charge)} ---
-
-Proceed?
+  // 🟢 CLIENT MODE: Send to WhatsApp
+  const handleWhatsAppOrder = () => {
+    if (!currentService || !quantity || !link) return alert("Please fill all fields.");
+    
+    const message = `
+*NEW ORDER REQUEST* 🚀
+------------------
+*Service:* ${currentService.name} (ID: ${currentService.id})
+*Link:* ${link}
+*Quantity:* ${quantity}
+*Price Quote:* ${formatINR(charge)}
+------------------
+Please confirm and share payment QR.
     `.trim();
+    
+    const url = `https://wa.me/${APP_CONFIG.WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
 
-    if (!window.confirm(confirmMsg)) return;
+  // 🔴 ADMIN MODE: Direct API Order
+  const handleAdminOrder = async () => {
+    if (!currentService) return alert("Select service");
+    if (!quantity) return alert("Enter quantity");
+    if (!link) return alert("Enter link");
+
+    if (viewMode === 'CLIENT') {
+        return alert("⚠️ You are in Client View (Catalog Mode).\n\nSwitch to 'Admin View' to verify the real Base Rate before placing an API order.");
+    }
+
+    if (!window.confirm(`CONFIRM API ORDER?\n\nService: ${currentService.name}\n\nClient Pays: ${formatINR(charge)}\nBASE RATE: ${formatINR(providerCost)}\nTAX/FEES: ${formatINR(charge - providerCost)}\n\nProceed?`)) return;
 
     setPlacingOrder(true);
     setOrderResult(null);
@@ -204,87 +192,91 @@ Proceed?
       const result = await placeProviderOrder(currentService.id, link, quantity);
       
       if (result.order) {
-        setOrderResult({ 
-          success: true, 
-          message: `SUCCESS! Order ID: ${result.order}` 
-        });
+        setOrderResult({ success: true, message: `SUCCESS! Order ID: ${result.order}` });
         setQuantity(0);
         setLink('');
-        setManualDiscount(0); // Reset discount
       } else if (result.error) {
-         setOrderResult({ 
-          success: false, 
-          message: `Provider Error: ${result.error}` 
-        });
+         setOrderResult({ success: false, message: `Provider Error: ${result.error}` });
       } else {
-         setOrderResult({ 
-          success: false, 
-          message: `Unknown response: ${JSON.stringify(result)}` 
-        });
+         setOrderResult({ success: false, message: `Unknown: ${JSON.stringify(result)}` });
       }
     } catch (e: any) {
-      console.error("Order Error:", e);
-      setOrderResult({ 
-        success: false, 
-        message: e.message || "Network Error"
-      });
+      setOrderResult({ success: false, message: e.message || "Network Error" });
     } finally {
       setPlacingOrder(false);
     }
   };
 
   const formatINR = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 2
-    }).format(amount);
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount);
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="lg:col-span-2 space-y-6">
         
-        {/* Source Control */}
-        <div className="bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-3">
-             <Server size={20} className="text-brand-400" />
-             <div>
-               <p className="font-bold text-sm">Data Source: {isLive ? 'Sandyinsta API (Live)' : 'Mock Data (Simulation)'}</p>
-               {isLive && <p className="text-xs text-brand-300">Connected & Ready to Order</p>}
-               {!isLive && hasApiKey && <p className="text-xs text-red-300">Connection Failed - Check Settings</p>}
-             </div>
-          </div>
-          <div className="flex gap-2">
-            {!hasApiKey && (
-              <Link to="/settings" className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
-                <Settings size={16} /> Setup API
-              </Link>
-            )}
-            {hasApiKey && (
-              <button 
-                onClick={loadApiServices}
-                disabled={isLoading}
-                className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-              >
-                <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-                {isLive ? 'Refresh' : 'Retry Sync'}
-              </button>
-            )}
-          </div>
-        </div>
+        {/* ADMIN CONTROLS - COMPACT */}
+        {isAdmin && (
+            <div className="bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-lg border border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                     <div className="bg-brand-500/20 p-2 rounded-lg">
+                        <ShieldCheck className="text-brand-400" size={20} />
+                     </div>
+                     <div>
+                         <h3 className="font-bold text-sm text-white tracking-tight">Admin Mode</h3>
+                         <p className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 uppercase tracking-wide">
+                            {viewMode === 'ADMIN' ? (
+                                <span className="text-brand-300 flex items-center gap-1"><Server size={10}/> Live API Source</span>
+                            ) : (
+                                <span className="text-amber-300 flex items-center gap-1"><Eye size={10}/> Client Catalog View</span>
+                            )}
+                         </p>
+                     </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hidden sm:block">
+                        {viewMode === 'ADMIN' ? 'Admin View' : 'Client View'}
+                    </span>
+                    <button 
+                        onClick={() => setViewMode(viewMode === 'ADMIN' ? 'CLIENT' : 'ADMIN')}
+                        className={`w-12 h-7 rounded-full p-1 transition-all duration-300 flex items-center shadow-inner ${viewMode === 'ADMIN' ? 'bg-brand-600' : 'bg-slate-700'}`}
+                        aria-label="Toggle View Mode"
+                    >
+                        <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ${viewMode === 'ADMIN' ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                    </button>
+                </div>
+            </div>
+        )}
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <TrendingUp size={20} className="text-brand-500" />
-            Price Calculator & Order
+        {/* Client Welcome Message (Only if NOT Admin) */}
+        {!isAdmin && (
+            <div className="bg-white border border-brand-100 p-5 rounded-2xl flex items-start gap-4 shadow-sm">
+                <div className="bg-brand-50 p-2.5 rounded-full shrink-0">
+                    <Info className="text-brand-600" size={24} />
+                </div>
+                <div>
+                    <h3 className="font-bold text-slate-900 text-lg tracking-tight">Price Calculator</h3>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed font-medium">
+                        Select a service to calculate your exact cost. When you are ready, click <strong>"Order via WhatsApp"</strong> to send your request directly to our team for instant processing.
+                    </p>
+                </div>
+            </div>
+        )}
+
+        <div className={`bg-white rounded-2xl shadow-sm border p-8 transition-all ${viewMode === 'ADMIN' ? 'border-brand-200 shadow-brand-50' : 'border-slate-200'}`}>
+          <h2 className="text-2xl font-black text-slate-900 mb-8 flex items-center gap-3 tracking-tight">
+            <div className={`p-2 rounded-xl ${viewMode === 'ADMIN' ? "bg-brand-100 text-brand-600" : "bg-slate-100 text-slate-600"}`}>
+                {viewMode === 'ADMIN' ? <Server size={24} /> : <TrendingUp size={24} />}
+            </div>
+            {viewMode === 'ADMIN' ? 'Direct Order' : 'New Order'}
           </h2>
           
-          <div className="space-y-6">
+          <div className="space-y-8">
             
             {/* Category Selector */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Platform</label>
+              <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Select Platform</label>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {Object.values(Platform).filter(p => p !== 'Other').map((platform) => (
                   <button
@@ -292,10 +284,10 @@ Proceed?
                     type="button"
                     onClick={() => setSelectedPlatform(platform)}
                     className={`
-                      py-3 px-4 rounded-lg border text-sm font-medium transition-all
+                      py-3.5 px-4 rounded-xl border text-sm font-bold transition-all duration-200
                       ${selectedPlatform === platform 
-                        ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-500' 
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}
+                        ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-500 shadow-sm' 
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50'}
                     `}
                   >
                     {platform}
@@ -304,17 +296,18 @@ Proceed?
               </div>
             </div>
 
-            {/* Service Selector (VISIBILITY IMPROVED) */}
+            {/* Service Selector */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Service</label>
+              <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Choose Service</label>
               <select
                 value={selectedServiceId}
                 onChange={(e) => setSelectedServiceId(Number(e.target.value))}
-                className="w-full rounded-lg border-slate-300 border-2 p-3 text-slate-900 font-bold bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-shadow text-base shadow-sm"
+                className="w-full rounded-xl border-slate-200 border-2 p-4 text-slate-900 font-semibold bg-white focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all cursor-pointer appearance-none text-sm"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: `right 0.5rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em` }}
               >
                 {availableServices.length === 0 && <option value="0">No services found for {selectedPlatform}</option>}
                 {availableServices.map((service) => (
-                  <option key={service.id} value={service.id} className="text-slate-900 font-semibold py-2">
+                  <option key={service.id} value={service.id} className="text-slate-900 font-medium py-2">
                     {service.id} - {service.name} - {formatINR(service.rate)}
                   </option>
                 ))}
@@ -323,156 +316,107 @@ Proceed?
 
             {/* Link Input */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Target Link</label>
+              <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Target Link</label>
               <input
                 type="text"
                 value={link}
                 onChange={(e) => setLink(e.target.value)}
                 placeholder="https://instagram.com/p/..."
-                className="w-full rounded-lg border-slate-300 border p-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+                className="w-full rounded-xl border-slate-200 border p-4 font-semibold text-slate-900 bg-slate-50 placeholder:text-slate-400 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all text-sm"
               />
             </div>
 
             {/* Quantity Input */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Quantity</label>
-              <input
-                type="number"
-                min={currentService?.min}
-                max={currentService?.max}
-                value={quantity || ''}
-                onChange={(e) => setQuantity(Number(e.target.value))}
-                placeholder={`Min: ${currentService?.min || 0} - Max: ${currentService?.max || 0}`}
-                className="w-full rounded-lg border-slate-300 border p-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
-              />
-            </div>
-
-            {/* Manual Discount Input (New) */}
-            <div>
-                <label className="block text-sm font-medium text-purple-700 mb-2 flex items-center gap-1">
-                    <Tag size={14} /> Manual Discount (%) <span className="text-slate-400 font-normal ml-2 text-xs">- Optional, use for negotiation</span>
-                </label>
-                <div className="relative">
-                    <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={manualDiscount || ''}
-                        onChange={(e) => setManualDiscount(parseFloat(e.target.value))}
-                        placeholder="0"
-                        className="w-full rounded-lg border-purple-200 bg-purple-50 border p-3 pl-4 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-purple-900 font-semibold"
-                    />
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-400 font-bold">%</div>
-                </div>
-            </div>
-
-            {/* Quote & Profit Display */}
-            <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <span className="text-slate-500 text-sm uppercase font-semibold">Client Price (Total)</span>
-                <div className="mt-1">
-                    {manualDiscount > 0 ? (
-                        <>
-                            <div className="flex items-center gap-2 mb-1">
-                                <span className="text-lg text-slate-400 line-through">{formatINR(baseCharge)}</span>
-                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">
-                                    {manualDiscount}% OFF
-                                </span>
-                            </div>
-                            <p className="text-3xl font-bold text-purple-700">{formatINR(charge)}</p>
-                        </>
-                    ) : (
-                        <p className="text-3xl font-bold text-slate-900">{formatINR(charge)}</p>
-                    )}
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                    {globalDiscount > 0 && <span className="text-purple-600 font-bold mr-1">Global Sale Active!</span>}
-                    Includes GST/Margin
-                </p>
+              <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Quantity</label>
+              <div className="relative">
+                  <input
+                    type="number"
+                    min={currentService?.min}
+                    max={currentService?.max}
+                    value={quantity || ''}
+                    onChange={(e) => setQuantity(Number(e.target.value))}
+                    placeholder={`Min: ${currentService?.min || 0} - Max: ${currentService?.max || 0}`}
+                    className="w-full rounded-xl border-slate-200 border p-4 font-mono font-bold text-slate-900 bg-slate-50 placeholder:text-slate-400 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all"
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded border border-slate-200 font-mono">
+                      {currentService?.min || 0} - {currentService?.max || 0}
+                  </div>
               </div>
-              
-              {isLive && currentService?.originalRate && (
-                 <div>
-                    <span className="text-slate-500 text-sm uppercase font-semibold">Base Cost (Provider)</span>
-                    <p className="text-xl font-bold text-slate-600 mt-1">{formatINR(providerCost)}</p>
-                    <span className={`text-xs font-bold block mt-1 ${charge < providerCost ? 'text-red-500' : 'text-green-600'}`}>
-                      {charge < providerCost ? 'WARNING: LOSS DEAL' : `GST/Fees: ${formatINR(charge - providerCost)}`}
-                    </span>
-                 </div>
-              )}
             </div>
 
-            {/* Actions */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            {/* Quote Display */}
+            <div className="bg-gradient-to-br from-slate-50 to-white rounded-2xl p-8 border border-slate-200 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-brand-50 rounded-full blur-2xl opacity-50"></div>
+                
+                <span className="text-slate-500 text-xs font-extrabold uppercase tracking-widest relative z-10">Total Estimated Cost</span>
+                <p className="text-4xl font-black text-slate-900 mt-2 tracking-tighter relative z-10 flex items-baseline gap-1">
+                    {formatINR(charge)}
+                    <span className="text-sm font-bold text-slate-400 ml-2 tracking-normal">INR</span>
+                </p>
+                
+                {/* INVOICE BREAKDOWN - ONLY VISIBLE IN ADMIN MODE */}
+                {viewMode === 'ADMIN' && currentService && (
+                    <div className="mt-6 pt-6 border-t border-slate-200 grid grid-cols-2 gap-4 relative z-10">
+                        <div>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Base Rate</span>
+                            <p className="text-slate-600 font-mono font-bold text-lg mt-1 tracking-tight">{formatINR(providerCost)}</p>
+                        </div>
+                        <div>
+                            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">GST & Taxes</span>
+                            <p className="text-emerald-600 font-mono font-bold text-lg mt-1 tracking-tight">+{formatINR(charge - providerCost)}</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* ACTION BUTTONS */}
+            <div className="flex flex-col sm:flex-row gap-4 pt-2">
                 <button
                   type="button"
                   onClick={handleCopy}
                   disabled={!quantity || quantity <= 0}
-                  className={`
-                    flex-1 flex justify-center items-center gap-2 font-semibold py-3 px-6 rounded-lg shadow-sm border transition-all
-                    ${!quantity || quantity <= 0 
-                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}
-                  `}
+                  className="flex-1 flex justify-center items-center gap-2 font-bold py-4 px-6 rounded-xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all active:scale-[0.98] uppercase tracking-wide text-xs"
                 >
-                  {copied ? <Check size={18} /> : <Copy size={18} />}
+                  {copied ? <Check size={18} className="text-emerald-500" /> : <Copy size={18} />}
                   {copied ? 'Copied!' : 'Copy Quote'}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handlePlaceOrder}
-                  disabled={placingOrder}
-                  className={`
-                    flex-1 flex justify-center items-center gap-2 font-semibold py-3 px-6 rounded-lg shadow-md transition-all
-                    ${placingOrder 
-                        ? 'bg-brand-800 text-white cursor-wait'
-                        : 'bg-brand-600 hover:bg-brand-700 text-white'}
-                  `}
-                >
-                  {placingOrder ? 'Processing...' : 'Order on Provider'}
-                  <ExternalLink size={16} />
-                </button>
+                {isAdmin ? (
+                    /* ADMIN BUTTON: Logic changes based on View Mode */
+                    <button
+                    type="button"
+                    onClick={handleAdminOrder}
+                    disabled={placingOrder}
+                    className={`
+                        flex-[2] flex justify-center items-center gap-3 font-bold py-4 px-6 rounded-xl shadow-lg transition-all text-white uppercase tracking-wide text-xs
+                        ${viewMode === 'CLIENT' ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (placingOrder ? 'bg-slate-700' : 'bg-slate-900 hover:bg-slate-800 active:scale-[0.98] shadow-slate-900/20')}
+                    `}
+                    >
+                    {viewMode === 'CLIENT' ? 'Switch to Admin View to Order' : (placingOrder ? 'Processing...' : 'BUY WITH SANDEEP BHAI')}
+                    <Server size={18} />
+                    </button>
+                ) : (
+                    /* CLIENT BUTTON: WhatsApp */
+                    <button
+                    type="button"
+                    onClick={handleWhatsAppOrder}
+                    className="flex-[2] flex justify-center items-center gap-3 font-bold py-4 px-6 rounded-xl shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all hover:shadow-emerald-600/30 active:scale-[0.98] uppercase tracking-wide text-xs"
+                    >
+                    Order via WhatsApp
+                    <MessageCircle size={18} />
+                    </button>
+                )}
             </div>
-            
-            {/* Order Result Message */}
+
+            {/* Result Message (Admin Only) */}
             {orderResult && (
-              <div className={`p-4 rounded-lg text-sm font-medium flex flex-col gap-1 ${orderResult.success ? 'bg-green-100 text-green-800' : 'bg-red-50 text-red-800 border border-red-200'}`}>
-                 <div className="flex items-center gap-2">
-                    {orderResult.success ? <Check size={18} /> : <XCircle size={18} />}
-                    <span className="font-bold">{orderResult.success ? 'Order Success' : 'Order Failed'}</span>
+              <div className={`p-5 rounded-xl text-sm font-medium flex items-center gap-3 border ${orderResult.success ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+                 <div className={`p-2 rounded-full ${orderResult.success ? 'bg-green-200' : 'bg-red-200'}`}>
+                    {orderResult.success ? <Check size={16} className="text-green-800" /> : <XCircle size={16} className="text-red-800" />}
                  </div>
-                 <div className="ml-6">
-                    {orderResult.message}
-                 </div>
-                 
-                 {!orderResult.success && (
-                    <div className="bg-white p-3 rounded mt-2 border border-red-100 text-xs text-slate-700">
-                       <p className="font-bold text-red-600 mb-1">Troubleshooting:</p>
-                       <ul className="list-disc list-inside space-y-1">
-                          <li>Check if your <strong>API Key</strong> is correct in Settings.</li>
-                          <li>If you see a "Cloudflare" or "HTML" error, the Proxy is blocked.</li>
-                          <li><strong>Fix:</strong> Go to Settings &rarr; Select <strong>Direct Connection</strong> &rarr; Install the CORS Extension.</li>
-                       </ul>
-                       <div className="mt-2 text-center">
-                          <Link to="/settings" className="inline-block bg-slate-100 border border-slate-300 px-3 py-1 rounded text-slate-700 font-bold hover:bg-slate-200">
-                             Go to Settings
-                          </Link>
-                       </div>
-                    </div>
-                 )}
+                 {orderResult.message}
               </div>
-            )}
-            
-            {!isLive && (
-                <div className="flex gap-2 items-start bg-blue-50 p-4 rounded-lg border border-blue-100">
-                    <HelpCircle size={20} className="text-blue-500 shrink-0 mt-0.5" />
-                    <div className="text-xs text-blue-800">
-                        <strong>Simulation Mode Active</strong><br/>
-                        You are viewing Mock Data (Placeholders). The 50% dynamic margin calculation only activates when you connect a Live API Key in Settings.<br/>
-                        To place real orders, go to <Link to="/settings" className="underline font-bold">Settings</Link> and connect your API.
-                    </div>
-                </div>
             )}
 
           </div>
@@ -481,90 +425,54 @@ Proceed?
 
       <div className="lg:col-span-1 space-y-6">
         {/* Service Details Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Info size={18} className="text-brand-500" />
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sticky top-24">
+          <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-3 tracking-tight">
+            <div className="bg-brand-100 p-2 rounded-lg">
+                <ShoppingBag size={20} className="text-brand-600" />
+            </div>
             Service Info
           </h3>
           {currentService ? (
-            <div className="space-y-4 text-sm">
+            <div className="space-y-6 text-sm">
+              <div className="pb-4 border-b border-slate-100">
+                <span className="text-slate-400 text-[10px] font-extrabold uppercase tracking-widest block mb-2">Service Name</span>
+                <span className="font-semibold text-slate-800 text-sm leading-snug">{currentService.name}</span>
+              </div>
+              <div className="pb-4 border-b border-slate-100">
+                <span className="text-slate-400 text-[10px] font-extrabold uppercase tracking-widest block mb-2">Price per 1000</span>
+                <span className="font-black text-brand-600 text-2xl tracking-tighter">{formatINR(currentService.rate)}</span>
+              </div>
               <div>
-                <span className="text-slate-500 block mb-1">Service Name</span>
-                <span className="font-medium text-slate-900">{currentService.name}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                 <div>
-                  <span className="text-slate-500 block mb-1">Client Rate (Unit)</span>
-                  <span className="font-bold text-brand-600">{formatINR(currentService.rate)}</span>
-                </div>
-                 <div>
-                  <span className="text-slate-500 block mb-1">Platform</span>
-                  <span className="font-medium text-slate-900">{currentService.platform}</span>
+                <span className="text-slate-400 text-[10px] font-extrabold uppercase tracking-widest block mb-2">Description</span>
+                <div className="text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs font-medium">
+                  {currentService.description || 'No description available'}
                 </div>
               </div>
-              {currentService.originalRate && (
-                 <div className="bg-slate-50 p-3 rounded border border-slate-100">
-                    <div className="flex justify-between items-center mb-1">
-                        <span className="text-slate-500 text-xs">Base Cost (Std)</span>
-                        <span className="font-mono text-slate-600">{formatINR(currentService.originalRate)}</span>
-                    </div>
-                    <div className="flex justify-between items-center font-bold text-green-600">
-                        <span className="text-xs uppercase">GST (50%)</span>
-                        <span>{formatINR(currentService.rate - currentService.originalRate)}</span>
-                    </div>
-                    {globalDiscount > 0 && (
-                        <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-purple-600 font-bold text-center">
-                            Includes {globalDiscount}% Global Sale Discount
-                        </div>
-                    )}
-                 </div>
+              
+              {viewMode === 'ADMIN' && (
+                  <div className="mt-6 p-4 bg-slate-900 text-slate-300 rounded-xl text-xs space-y-2 font-mono">
+                      <p className="font-bold text-white uppercase border-b border-slate-700 pb-2 mb-2 tracking-wider">Admin Debug Info</p>
+                      <div className="flex justify-between">
+                          <span>Service ID:</span>
+                          <span className="text-white">{currentService.id}</span>
+                      </div>
+                      <div className="flex justify-between">
+                          <span>Type:</span>
+                          <span className="text-white">{currentService.type}</span>
+                      </div>
+                      <div className="flex justify-between">
+                          <span>Category:</span>
+                          <span className="text-white text-right max-w-[150px] truncate">{currentService.category}</span>
+                      </div>
+                  </div>
               )}
-              <div>
-                <span className="text-slate-500 block mb-1">Description/Category</span>
-                <p className="text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-md border border-slate-100">
-                  {currentService.description || currentService.category || 'No description available'}
-                </p>
-              </div>
             </div>
           ) : (
-            <p className="text-slate-500">Select a service to view details.</p>
+            <div className="text-slate-400 text-center py-10 flex flex-col items-center">
+                <Info size={48} className="mb-4 opacity-20" />
+                <p className="font-medium text-sm">Select a service to view details.</p>
+            </div>
           )}
-        </div>
-        
-        {/* Business Safety Check Widget */}
-        <div className="bg-brand-50 rounded-xl p-6 border border-brand-100">
-           <h4 className="font-bold text-brand-800 mb-2 flex items-center gap-2">
-              <ShieldCheck size={16} /> Business Safety Check
-           </h4>
-           <div className="space-y-3 text-sm text-brand-900">
-               {exchangeRate !== 1 && (
-                  <div className="flex justify-between border-b border-brand-200 pb-2 bg-yellow-50 p-1 rounded">
-                      <span className="text-xs">Currency Conversion:</span>
-                      <span className="font-mono text-xs font-bold">Rate x {exchangeRate}</span>
-                  </div>
-               )}
-              <div className="flex justify-between border-b border-brand-200 pb-2">
-                  <span>Provider Rate (Std):</span>
-                  <span className="font-mono">{currentService?.originalRate ? formatINR(currentService.originalRate) : '0.00'}</span>
-              </div>
-              <div className="flex justify-between border-b border-brand-200 pb-2">
-                  <span>Selling Multiplier:</span>
-                  <span className="font-bold">x 1.5 (Standard)</span>
-              </div>
-              {globalDiscount > 0 && (
-                  <div className="flex justify-between border-b border-brand-200 pb-2 text-purple-700">
-                    <span>Global Discount:</span>
-                    <span className="font-bold">-{globalDiscount}%</span>
-                </div>
-              )}
-              <div className="flex justify-between pt-1">
-                  <span className="font-bold">Your Unit Price:</span>
-                  <span className="font-bold">{currentService?.rate ? formatINR(currentService.rate) : '0.00'}</span>
-              </div>
-           </div>
-            <p className="text-xs text-brand-700 mt-3 italic">
-                * The difference is collected as GST & Service Taxes.
-            </p>
         </div>
       </div>
     </div>

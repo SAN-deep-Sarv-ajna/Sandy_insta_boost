@@ -16,8 +16,8 @@ export enum ServiceType {
 
 export interface Service {
   id: number;
-  platform: Platform;
-  type: ServiceType;
+  platform: string;
+  type: string;
   name: string;
   rate: number; // Your Selling Price
   originalRate?: number; // Provider Cost (Hidden from client usually, visible to you)
