@@ -129,10 +129,10 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
     }
 
     // Transform Provider Data
-    // MARGIN: 30% (Selling Price = Provider Cost * 1.3)
+    // MARGIN: 50% (Selling Price = Provider Cost * 1.5)
     return data.map((item: ProviderService) => {
       const originalRate = parseFloat(item.rate);
-      const sellingRate = originalRate * 1.3; // 30% Margin
+      const sellingRate = originalRate * 1.5; // 50% Margin added here
 
       return {
         id: parseInt(item.service),

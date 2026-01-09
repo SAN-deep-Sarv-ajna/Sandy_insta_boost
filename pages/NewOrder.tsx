@@ -335,7 +335,7 @@ Proceed?
                     <span className="text-slate-500 text-sm uppercase font-semibold">Base Cost (Hidden)</span>
                     <p className="text-xl font-bold text-slate-600 mt-1">{formatINR(providerCost)}</p>
                     <span className="text-xs text-green-600 font-bold block mt-1">
-                      GST (You keep): {formatINR(charge - providerCost)}
+                      Profit (50% Margin): {formatINR(charge - providerCost)}
                     </span>
                  </div>
               )}
@@ -408,7 +408,7 @@ Proceed?
                     <HelpCircle size={20} className="text-blue-500 shrink-0 mt-0.5" />
                     <div className="text-xs text-blue-800">
                         <strong>Simulation Mode Active</strong><br/>
-                        You are viewing Mock Data. Orders placed now will fail validation.<br/>
+                        You are viewing Mock Data (Placeholders). The 50% dynamic margin calculation only activates when you connect a Live API Key in Settings.<br/>
                         To place real orders, go to <Link to="/settings" className="underline font-bold">Settings</Link> and connect your API.
                     </div>
                 </div>
@@ -448,7 +448,7 @@ Proceed?
                         <span className="font-mono text-slate-600">{formatINR(currentService.originalRate)}</span>
                     </div>
                     <div className="flex justify-between items-center font-bold text-green-600">
-                        <span className="text-xs uppercase">Taxes (50%)</span>
+                        <span className="text-xs uppercase">Profit (50%)</span>
                         <span>{formatINR(currentService.rate - currentService.originalRate)}</span>
                     </div>
                  </div>
@@ -472,7 +472,7 @@ Proceed?
            <ul className="text-sm text-brand-900 space-y-2 list-disc list-inside">
               <li><strong>UI Price:</strong> Base Cost * 1.5</li>
               <li><strong>Action:</strong> Only the Base Cost is deducted from the API.</li>
-              <li><strong>GST:</strong> The extra 50% is your collected tax/profit.</li>
+              <li><strong>Profit:</strong> The extra 50% is your margin.</li>
            </ul>
         </div>
       </div>
