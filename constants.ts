@@ -13,7 +13,7 @@ export const APP_CONFIG = {
   
   // Security PIN to access Admin Settings/API Features
   // ⚠️ CHANGE THIS BEFORE SHARING!
-  ADMIN_PIN: "1134", 
+  ADMIN_PIN: "jokr", 
 
   // If true, the app acts as a Catalog/WhatsApp Order bot by default.
   // You must enter the PIN in Settings to unlock API features.
