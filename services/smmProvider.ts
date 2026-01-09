@@ -30,6 +30,8 @@ export const setAdminUnlocked = (status: boolean) => {
 };
 
 export const getStoredSettings = () => {
+  const isUnlocked = isAdminUnlocked();
+
   const storedProxy = localStorage.getItem(STORAGE_KEY_USE_PROXY);
   const useProxy = storedProxy === 'true'; 
 
@@ -38,8 +40,14 @@ export const getStoredSettings = () => {
   const globalDiscount = parseFloat(localStorage.getItem(STORAGE_KEY_GLOBAL_DISCOUNT) || '0');
   const upiId = localStorage.getItem(STORAGE_KEY_UPI_ID) || '';
 
-  // SECURITY: Prioritize LocalStorage (Admin), fallback to Config (Public Client)
-  const rawApiKey = localStorage.getItem(STORAGE_KEY_API) || APP_CONFIG.PROVIDER_API_KEY || '';
+  // 🛡️ SECURITY CRITICAL: 
+  // If the user is NOT an Admin, we strictly return an EMPTY API Key.
+  // This ensures that even if you accidentally hardcoded the key in APP_CONFIG,
+  // it is scrubbed from memory for regular clients.
+  let rawApiKey = '';
+  if (isUnlocked) {
+      rawApiKey = localStorage.getItem(STORAGE_KEY_API) || APP_CONFIG.PROVIDER_API_KEY || '';
+  }
   
   return {
     apiKey: rawApiKey,
@@ -50,7 +58,7 @@ export const getStoredSettings = () => {
     autoExchangeRate,
     globalDiscount: isNaN(globalDiscount) ? 0 : globalDiscount,
     // Hide settings if NOT admin
-    hideSettings: !isAdminUnlocked(),
+    hideSettings: !isUnlocked,
     upiId
   };
 };
