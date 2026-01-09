@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { Check, X, Loader2, ListOrdered, Link as LinkIcon, AlertTriangle } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { Check, X, Loader2, ListOrdered, Link as LinkIcon, AlertTriangle, AlertCircle } from 'lucide-react';
 import { placeProviderOrder } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -9,19 +9,32 @@ const AdminOrders: React.FC = () => {
   const { user, isAdmin } = useAuth(); // Use isAdmin from Context (which handles Email Logic)
   const [orders, setOrders] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAdmin || !db) return;
 
-    // Listen for PENDING_APPROVAL orders
+    // FIX: Removed 'orderBy' to prevent Firestore "Missing Index" errors.
     const q = query(
       collection(db, 'orders'),
-      where('status', '==', 'PENDING_APPROVAL'),
-      orderBy('createdAt', 'desc')
+      where('status', '==', 'PENDING_APPROVAL')
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Sort in memory (Newest First)
+      data.sort((a: any, b: any) => {
+         const timeA = a.createdAt?.seconds || 0;
+         const timeB = b.createdAt?.seconds || 0;
+         return timeB - timeA;
+      });
+
+      setOrders(data);
+      setError(null);
+    }, (err) => {
+        console.error("Firestore Error:", err);
+        setError("Permission Denied or Index Missing.");
     });
 
     return () => unsub();
@@ -119,6 +132,13 @@ const AdminOrders: React.FC = () => {
                 {orders.length} Pending
             </div>
         </div>
+
+        {error && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl flex items-center gap-3">
+                <AlertCircle size={20} />
+                <span className="font-bold text-sm">{error}</span>
+            </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             {orders.length === 0 ? (

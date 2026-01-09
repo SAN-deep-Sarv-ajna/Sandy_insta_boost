@@ -1,26 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { Check, X, Loader2, ShieldAlert, DollarSign } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { Check, X, Loader2, ShieldAlert, DollarSign, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const AdminTransactions: React.FC = () => {
   const { user, isAdmin } = useAuth(); // Use isAdmin from Context
   const [requests, setRequests] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAdmin || !db) return;
 
-    // Listen for PENDING requests
+    // FIX: Removed 'orderBy' to prevent Firestore "Missing Index" errors.
+    // We filter by status only, then sort in the browser.
     const q = query(
       collection(db, 'transactions'),
-      where('status', '==', 'PENDING'),
-      orderBy('createdAt', 'desc')
+      where('status', '==', 'PENDING')
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Sort in memory (Newest First)
+      // We handle cases where createdAt might be null (latency compensation)
+      data.sort((a: any, b: any) => {
+         const timeA = a.createdAt?.seconds || 0;
+         const timeB = b.createdAt?.seconds || 0;
+         return timeB - timeA;
+      });
+
+      setRequests(data);
+      setError(null);
+    }, (err) => {
+      console.error("Firestore Error:", err);
+      setError("Permission Denied or Index Missing. Check Console.");
     });
 
     return () => unsub();
@@ -94,6 +109,13 @@ const AdminTransactions: React.FC = () => {
                 {requests.length} Pending
             </div>
         </div>
+        
+        {error && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl flex items-center gap-3">
+                <AlertCircle size={20} />
+                <span className="font-bold text-sm">{error}</span>
+            </div>
+        )}
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             {requests.length === 0 ? (

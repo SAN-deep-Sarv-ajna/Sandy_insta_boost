@@ -16,7 +16,8 @@ import {
   ShieldAlert,
   LogOut,
   User,
-  ListOrdered
+  ListOrdered,
+  Lock
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -166,6 +167,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="flex flex-col items-center text-center">
                 <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Engineered by</p>
                 <p className="text-xs font-bold text-slate-300 mt-1">Sandeep (Chakia)</p>
+                
+                {/* SECRET ADMIN ACCESS BUTTON */}
+                {!isAdmin && (
+                  <Link to="/settings" title="Admin Login" className="mt-4 p-2 text-slate-700 hover:text-white transition-colors opacity-30 hover:opacity-100">
+                    <Lock size={14} />
+                  </Link>
+                )}
             </div>
           </div>
         </div>

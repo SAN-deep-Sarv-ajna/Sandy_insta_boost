@@ -17,7 +17,7 @@ export const APP_CONFIG = {
   // 👑 OWNER IDENTITY (CRITICAL)
   // Enter your Google Email here. When you login with this email, 
   // you will automatically get Admin Access without needing the PIN.
-  ADMIN_EMAIL: "sandeep@gmail.com", // <--- REPLACE WITH YOUR EXACT GMAIL
+  ADMIN_EMAIL: "sandeep@gmail.com", // <--- ⚠️ CHANGE THIS TO YOUR EXACT GMAIL ADDRESS
 
   // If true, the app acts as a Catalog/WhatsApp Order bot by default.
   // You must enter the PIN in Settings to unlock API features.
@@ -52,7 +52,6 @@ export const MOCK_SERVICES: Service[] = [
     "description": "NEW SERVICES",
     "category": "NEW SERVICES"
   },
-  // ... (Keeping existing services to save space, assuming they are unchanged)
   {
     "id": 1345,
     "platform": "TikTok",
