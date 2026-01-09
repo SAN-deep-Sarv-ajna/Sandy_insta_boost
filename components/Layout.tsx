@@ -15,7 +15,8 @@ import {
   Wallet,
   ShieldAlert,
   LogOut,
-  User
+  User,
+  ListOrdered
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -57,7 +58,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   if (isAdmin) {
-      navItems.push({ name: 'Approvals', path: '/admin/transactions', icon: ShieldAlert });
+      navItems.push({ name: 'Order Queue', path: '/admin/orders', icon: ListOrdered });
+      navItems.push({ name: 'Funds Approvals', path: '/admin/transactions', icon: ShieldAlert });
       navItems.push({ name: 'Settings', path: '/settings', icon: SettingsIcon });
   } else if (!hideSettings) {
       navItems.push({ name: 'API Settings', path: '/settings', icon: SettingsIcon });
@@ -144,7 +146,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 >
                   <Icon size={18} className={`${isActive ? 'text-white' : 'text-slate-500 group-hover:text-white'} transition-colors`} />
                   {item.name}
-                  {item.name === 'Approvals' && (
+                  {(item.name === 'Funds Approvals' || item.name === 'Order Queue') && (
                      <span className="ml-auto w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
                   )}
                 </NavLink>

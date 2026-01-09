@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MOCK_SERVICES, APP_CONFIG } from '../constants';
 import { Platform, Service } from '../types';
-import { TrendingUp, Info, Copy, Check, Server, DollarSign, XCircle, ShieldCheck, ShoppingBag, Loader2, Zap, AlertTriangle, MessageCircle, Wallet } from 'lucide-react';
+import { TrendingUp, Info, Check, Server, XCircle, ShieldCheck, ShoppingBag, Loader2, Zap, MessageCircle, Wallet, Clock } from 'lucide-react';
 import { fetchProviderServices, placeProviderOrder, getStoredSettings, isAdminUnlocked } from '../services/smmProvider';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,16 +10,15 @@ import { doc, runTransaction, collection, addDoc, serverTimestamp } from 'fireba
 
 const NewOrder: React.FC = () => {
   // Services State
-  const [catalogServices, setCatalogServices] = useState<Service[]>(MOCK_SERVICES); // The Public List
-  const [liveServices, setLiveServices] = useState<Service[]>([]); // The Admin/API List
-  const [displayedServices, setDisplayedServices] = useState<Service[]>(MOCK_SERVICES); // What is currently shown
+  const [catalogServices, setCatalogServices] = useState<Service[]>(MOCK_SERVICES);
+  const [liveServices, setLiveServices] = useState<Service[]>([]);
+  const [displayedServices, setDisplayedServices] = useState<Service[]>(MOCK_SERVICES);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const { user, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   
-  // Toggle for Admin to see what clients see
   const [viewMode, setViewMode] = useState<'ADMIN' | 'CLIENT'>('CLIENT');
 
   // Form State
@@ -29,15 +28,12 @@ const NewOrder: React.FC = () => {
   const [quantity, setQuantity] = useState<number>(0);
   const [manualDiscount, setManualDiscount] = useState<number>(0);
   
-  // UI State
   const [charge, setCharge] = useState(0); 
   const [providerCost, setProviderCost] = useState(0);
   
-  const [copied, setCopied] = useState(false);
   const [orderResult, setOrderResult] = useState<{success: boolean, message: string} | null>(null);
   const [placingOrder, setPlacingOrder] = useState(false);
 
-  // URL Params
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -53,14 +49,12 @@ const NewOrder: React.FC = () => {
     }
   }, []);
 
-  // When viewMode changes, swap the dataset
   useEffect(() => {
     if (viewMode === 'ADMIN' && liveServices.length > 0) {
         setDisplayedServices(liveServices);
     } else {
         setDisplayedServices(catalogServices);
     }
-    // Reset selection when switching modes to avoid ID conflicts
     setSelectedServiceId(0);
   }, [viewMode, liveServices, catalogServices]);
 
@@ -123,14 +117,9 @@ const NewOrder: React.FC = () => {
   useEffect(() => {
     if (currentService && quantity) {
       const rawPrice = (quantity / 1000) * currentService.rate;
-      
-      const finalPrice = manualDiscount > 0 
-         ? rawPrice * (1 - manualDiscount / 100)
-         : rawPrice;
-      
+      const finalPrice = manualDiscount > 0 ? rawPrice * (1 - manualDiscount / 100) : rawPrice;
       setCharge(finalPrice);
 
-      // Provider Cost (Only exists in Live Data / Admin Mode)
       if (currentService.originalRate) {
         const standardCost = (quantity / 1000) * currentService.originalRate;
         setProviderCost(standardCost);
@@ -143,15 +132,7 @@ const NewOrder: React.FC = () => {
     }
   }, [quantity, currentService, manualDiscount]);
 
-  const handleCopy = () => {
-    if (!currentService || !quantity) return;
-    const text = `SERVICE: ${currentService.name}\nLINK: ${link || 'N/A'}\nQUANTITY: ${quantity}\nPRICE: ${formatINR(charge)}`;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // CLIENT WALLET PURCHASE LOGIC
+  // --- NEW WORKFLOW: QUEUE ORDER ---
   const handlePurchase = async () => {
     if (!user) {
         alert("Please login first to place an order.");
@@ -162,9 +143,9 @@ const NewOrder: React.FC = () => {
     if (!link) return alert("Enter link");
     if (!db) return alert("Database error.");
 
-    // 1. Balance Check (Client Side Pre-Check)
+    // 1. Balance Check
     if (user.balance < charge) {
-        return alert(`Insufficient Balance! You need ₹${formatINR(charge - user.balance)} more.\nPlease go to 'Add Funds'.`);
+        return alert(`Insufficient Balance! You need ₹${formatINR(charge - user.balance)} more.`);
     }
 
     if (!window.confirm(`Confirm Order for ₹${formatINR(charge)}?`)) return;
@@ -173,10 +154,6 @@ const NewOrder: React.FC = () => {
     setOrderResult(null);
 
     try {
-        // 2. FIRESTORE TRANSACTION (Deduct Money)
-        let providerOrderId = null;
-        let errorMsg = "";
-
         await runTransaction(db, async (transaction) => {
             const userRef = doc(db, 'users', user.uid);
             const userDoc = await transaction.get(userRef);
@@ -189,67 +166,39 @@ const NewOrder: React.FC = () => {
                 throw "Insufficient funds during transaction.";
             }
 
-            // Deduct
+            // 2. Deduct Balance
             const newBalance = currentBalance - charge;
             transaction.update(userRef, { balance: newBalance });
-
-            // 3. CALL SMM API (Inside transaction logic flow, but actually executed after if success, 
-            // generally we do it optimistic or with cloud functions. 
-            // Here we do it client side for this architecture)
         });
 
-        // 4. PLACE ACTUAL ORDER (If deduction success)
-        try {
-            const result = await placeProviderOrder(currentService.id, link, quantity);
-            
-            if (result.order) {
-                providerOrderId = result.order;
-            } else if (result.error) {
-                errorMsg = result.error;
-                throw new Error(result.error);
-            } else {
-                throw new Error("Unknown Provider Error");
-            }
-        } catch (apiError: any) {
-            // 5. ROLLBACK (REFUND) IF API FAILS
-            console.error("API Failed, Refunding...", apiError);
-            await runTransaction(db, async (transaction) => {
-                const userRef = doc(db, 'users', user.uid);
-                const userDoc = await transaction.get(userRef);
-                const currentBalance = userDoc.data().balance || 0;
-                transaction.update(userRef, { balance: currentBalance + charge });
-            });
-            throw new Error(`Order Failed: ${apiError.message || "Provider Error"}. Money Refunded.`);
-        }
+        // 3. Save to DB as PENDING (Queue)
+        // We do NOT call the API here. We let the Admin do it manually.
+        await addDoc(collection(db, 'orders'), {
+            userId: user.uid,
+            userEmail: user.email,
+            serviceId: currentService.id,
+            serviceName: currentService.name,
+            platform: currentService.platform,
+            link: link,
+            quantity: quantity,
+            charge: charge,
+            status: 'PENDING_APPROVAL', // Status for Admin Queue
+            createdAt: serverTimestamp()
+        });
+        
+        // 4. Log Transaction
+        await addDoc(collection(db, 'transactions'), {
+            userId: user.uid,
+            amount: charge,
+            type: 'DEBIT',
+            reason: `Order Queue (Service #${currentService.id})`,
+            createdAt: serverTimestamp(),
+            status: 'COMPLETED'
+        });
 
-        // 6. RECORD HISTORY (If Success)
-        if (providerOrderId) {
-            await addDoc(collection(db, 'orders'), {
-                userId: user.uid,
-                serviceId: currentService.id,
-                serviceName: currentService.name,
-                link: link,
-                quantity: quantity,
-                charge: charge,
-                providerOrderId: providerOrderId,
-                status: 'PENDING',
-                createdAt: serverTimestamp()
-            });
-            
-            // Transaction Log
-            await addDoc(collection(db, 'transactions'), {
-                userId: user.uid,
-                amount: charge,
-                type: 'DEBIT',
-                reason: `Order #${providerOrderId}`,
-                createdAt: serverTimestamp(),
-                status: 'COMPLETED'
-            });
-
-            setOrderResult({ success: true, message: `Order Placed Successfully! ID: ${providerOrderId}` });
-            setQuantity(0);
-            setLink('');
-        }
+        setOrderResult({ success: true, message: `Order Queued! Waiting for Admin Approval.` });
+        setQuantity(0);
+        setLink('');
 
     } catch (e: any) {
         setOrderResult({ success: false, message: e.message || "Transaction Failed" });
@@ -265,7 +214,7 @@ const NewOrder: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  // ADMIN OVERRIDE ORDER (Bypasses wallet)
+  // ADMIN FORCE ORDER (Direct API, bypasses wallet)
   const handleAdminOrder = async () => {
     if (!currentService || !quantity || !link) return alert("Fill all fields");
     if (!window.confirm("Place Direct API Order (Bypass Wallet)?")) return;
@@ -355,6 +304,12 @@ const NewOrder: React.FC = () => {
                 <p className="text-4xl font-black text-slate-900 mt-2 tracking-tighter relative z-10 flex items-baseline gap-1">
                     {formatINR(charge)} <span className="text-sm font-bold text-slate-400 ml-2 tracking-normal">INR</span>
                 </p>
+                {/* Note about approval */}
+                {viewMode === 'CLIENT' && (
+                    <div className="absolute right-0 bottom-0 p-4 opacity-50">
+                        <Clock className="text-slate-300 w-16 h-16 -mb-4 -mr-4" />
+                    </div>
+                )}
             </div>
 
             {/* ACTION BUTTONS */}
@@ -383,6 +338,12 @@ const NewOrder: React.FC = () => {
                     </>
                 )}
             </div>
+            
+            {viewMode === 'CLIENT' && user && user.balance >= charge && (
+                <p className="text-[10px] text-center text-slate-400 font-medium">
+                    Order will be queued for Admin approval. Money is held safely.
+                </p>
+            )}
 
             {/* Result Message */}
             {orderResult && (

@@ -8,6 +8,7 @@ import Settings from './pages/Settings';
 import TrackOrder from './pages/TrackOrder';
 import AddFunds from './pages/AddFunds';
 import AdminTransactions from './pages/AdminTransactions';
+import AdminOrders from './pages/AdminOrders';
 
 const App: React.FC = () => {
   return (
@@ -21,6 +22,7 @@ const App: React.FC = () => {
           <Route path="/settings" element={<Settings />} />
           <Route path="/add-funds" element={<AddFunds />} />
           <Route path="/admin/transactions" element={<AdminTransactions />} />
+          <Route path="/admin/orders" element={<AdminOrders />} />
           
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
