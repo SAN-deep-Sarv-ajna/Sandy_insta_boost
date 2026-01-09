@@ -60,7 +60,7 @@ const ServicesList: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tighter flex items-center gap-3">
-            Service Catalog
+            Services (Chakia)
             {isLive && (
                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 tracking-wide uppercase">
                     Live API
@@ -117,16 +117,80 @@ const ServicesList: React.FC = () => {
         />
       </div>
 
-      {/* Service Table */}
+      {/* Service List Container */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        
+        {/* --- MOBILE VIEW: Cards (Visible on screens smaller than 'md') --- */}
+        <div className="md:hidden divide-y divide-slate-100">
+            {filteredServices.map((service) => (
+                <div key={service.id} className="p-5 space-y-4 hover:bg-slate-50 transition-colors">
+                    {/* Card Header */}
+                    <div className="flex justify-between items-start">
+                        <span className="font-mono text-slate-400 font-bold text-xs bg-slate-100 px-2 py-1 rounded">#{service.id}</span>
+                        <span className={`inline-flex items-center px-2 py-1 rounded text-[10px] uppercase font-bold border tracking-wide
+                            ${service.platform === 'Instagram' ? 'bg-pink-50 text-pink-700 border-pink-200' : 
+                            service.platform === 'Facebook' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                            service.platform === 'YouTube' ? 'bg-red-50 text-red-700 border-red-200' :
+                            service.platform === 'TikTok' ? 'bg-slate-100 text-slate-900 border-slate-200' :
+                            'bg-slate-100 text-slate-700 border-slate-200'}
+                        `}>
+                            {service.platform}
+                        </span>
+                    </div>
+
+                    {/* Service Name & Desc */}
+                    <div>
+                        <h3 className="font-bold text-slate-900 text-sm leading-relaxed">{service.name}</h3>
+                        {service.description && (
+                            <p className="text-xs text-slate-500 mt-2 bg-slate-50 p-2.5 rounded border border-slate-100 leading-relaxed font-medium">
+                                <Info size={12} className="inline mr-1 text-brand-500 -mt-0.5"/> 
+                                {service.description}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="bg-white border border-slate-200 p-3 rounded-xl flex flex-col">
+                            <span className="text-slate-400 text-[10px] uppercase font-extrabold tracking-wider mb-1">Rate / 1000</span>
+                            <span className="font-bold text-slate-900 font-mono text-base">{formatINR(service.rate)}</span>
+                        </div>
+                        <div className="bg-white border border-slate-200 p-3 rounded-xl flex flex-col">
+                            <span className="text-slate-400 text-[10px] uppercase font-extrabold tracking-wider mb-1">Limits</span>
+                            <span className="font-medium text-slate-600 font-mono mt-auto">{service.min} - {service.max}</span>
+                        </div>
+                    </div>
+
+                    {/* Admin Profit (Only if live) */}
+                    {isLive && service.originalRate && (
+                        <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-xl border border-emerald-100 text-xs">
+                             <span className="text-emerald-700 font-bold uppercase text-[10px] tracking-wide">Net Profit / 1k</span>
+                             <span className="text-emerald-700 font-mono font-bold text-sm">
+                                +{formatINR(service.rate - service.originalRate)}
+                             </span>
+                        </div>
+                    )}
+
+                    {/* Action Button */}
+                    <Link 
+                      to={`/calculator?serviceId=${service.id}`}
+                      className="flex items-center justify-center gap-2 bg-slate-900 text-white w-full py-3.5 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/10 active:scale-95 uppercase tracking-wide"
+                    >
+                      <ShoppingCart size={14} /> Order Service
+                    </Link>
+                </div>
+            ))}
+        </div>
+
+        {/* --- DESKTOP VIEW: Table (Visible on 'md' and larger) --- */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-600">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-6 py-5 font-bold text-slate-400 uppercase tracking-widest text-[10px] w-24">ID</th>
                 <th className="px-6 py-5 font-bold text-slate-400 uppercase tracking-widest text-[10px]">Service Details</th>
                 <th className="px-6 py-5 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-right whitespace-nowrap">Price / 1K</th>
-                {isLive && <th className="px-6 py-5 font-bold text-emerald-600 uppercase tracking-widest text-[10px] text-right whitespace-nowrap">GST & Taxes</th>}
+                {isLive && <th className="px-6 py-5 font-bold text-emerald-600 uppercase tracking-widest text-[10px] text-right whitespace-nowrap">Profit</th>}
                 <th className="px-6 py-5 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-center whitespace-nowrap">Min / Max</th>
                 <th className="px-6 py-5 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-center w-24">Action</th>
               </tr>
@@ -190,16 +254,17 @@ const ServicesList: React.FC = () => {
               ))}
             </tbody>
           </table>
-          {filteredServices.length === 0 && (
-            <div className="p-12 text-center">
+        </div>
+
+        {filteredServices.length === 0 && (
+            <div className="p-12 text-center border-t border-slate-100 md:border-t-0">
               <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Search className="text-slate-300" size={32} />
               </div>
               <h3 className="text-slate-900 font-bold mb-1">No services found</h3>
               <p className="text-slate-500 text-sm font-medium">We couldn't find anything matching "{searchTerm}"</p>
             </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
