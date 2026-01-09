@@ -48,8 +48,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
   }, []);
 
-  const hideSettings = settings.hideSettings;
-
   const navItems = [
     { name: 'Services', path: '/', icon: List },
     { name: 'New Order', path: '/calculator', icon: Calculator },
@@ -62,9 +60,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       navItems.push({ name: 'Order Queue', path: '/admin/orders', icon: ListOrdered });
       navItems.push({ name: 'Funds Approvals', path: '/admin/transactions', icon: ShieldAlert });
       navItems.push({ name: 'Settings', path: '/settings', icon: SettingsIcon });
-  } else if (!hideSettings) {
-      navItems.push({ name: 'API Settings', path: '/settings', icon: SettingsIcon });
   }
+  // Client-side Settings link removed requested.
+  // Access is now only via the secret lock button or direct URL.
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
