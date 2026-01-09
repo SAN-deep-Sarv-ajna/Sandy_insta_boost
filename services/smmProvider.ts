@@ -42,8 +42,6 @@ export const getStoredSettings = () => {
 
   // 🛡️ SECURITY CRITICAL: 
   // If the user is NOT an Admin, we strictly return an EMPTY API Key.
-  // This ensures that even if you accidentally hardcoded the key in APP_CONFIG,
-  // it is scrubbed from memory for regular clients.
   let rawApiKey = '';
   if (isUnlocked) {
       rawApiKey = localStorage.getItem(STORAGE_KEY_API) || APP_CONFIG.PROVIDER_API_KEY || '';
@@ -145,8 +143,6 @@ export const fetchLiveRate = async (): Promise<number | null> => {
 export const fetchProviderServices = async (): Promise<Service[]> => {
   // Only Admin can FETCH full list to protect pricing data
   if (!isAdminUnlocked()) {
-      // Return empty or throw error to force using MOCK_SERVICES for clients
-      // This ensures clients only see the JSON you generated/exported
       return []; 
   }
 
@@ -227,7 +223,6 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
 export const placeProviderOrder = async (serviceId: number, link: string, quantity: number) => {
   const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
   
-  // Ensure we have a key (Either Admin Local or Constant)
   if (!apiKey) throw new Error("System Error: API Key not configured. Contact Support.");
 
   try {
@@ -261,28 +256,24 @@ export const placeProviderOrder = async (serviceId: number, link: string, quanti
   }
 };
 
+// 🔒 UPDATED: Now uses Secure Server Endpoint
 export const fetchOrderStatus = async (orderId: string | number) => {
-  const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
-  if (!apiKey) throw new Error("System Error: Configuration missing.");
-
   try {
-    const params = new URLSearchParams();
-    params.append('key', apiKey);
-    params.append('action', 'status');
-    params.append('order', orderId.toString());
-
-    const targetUrl = buildTargetUrl(apiUrl, proxyUrl, useProxy);
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
+    // We now call our own secure server instead of the provider directly.
+    // This way, we don't need the API key in the browser.
+    const response = await fetch(`/api/status?order=${orderId}`, {
+      method: 'GET',
     });
     
-    const text = await response.text();
-    if (text.trim().startsWith('<')) throw new Error("Proxy Error");
-    return JSON.parse(text);
-  } catch (e) {
-    throw e;
+    const data = await response.json();
+    
+    if (response.status !== 200) {
+        throw new Error(data.error || "Server Error");
+    }
+    return data;
+  } catch (e: any) {
+    console.error("Secure Status Check Failed:", e);
+    return { error: e.message || "Failed to fetch status" };
   }
 }
 

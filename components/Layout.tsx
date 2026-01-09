@@ -5,7 +5,6 @@ import {
   List, 
   Menu, 
   Zap,
-  Bot,
   Settings as SettingsIcon,
   QrCode,
   X,
@@ -17,7 +16,8 @@ import {
   LogOut,
   User,
   ListOrdered,
-  Lock
+  Lock,
+  Package
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -51,18 +51,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navItems = [
     { name: 'Services', path: '/', icon: List },
     { name: 'New Order', path: '/calculator', icon: Calculator },
-    { name: 'Add Funds', path: '/add-funds', icon: Wallet }, // New Link
-    { name: 'Track Order', path: '/track', icon: Activity },
-    { name: 'AI Strategy', path: '/ai-strategy', icon: Bot },
   ];
+
+  if (user) {
+    navItems.push({ name: 'My Orders', path: '/my-orders', icon: Package });
+    navItems.push({ name: 'Add Funds', path: '/add-funds', icon: Wallet });
+  }
+
+  navItems.push({ name: 'Track Order', path: '/track', icon: Activity });
 
   if (isAdmin) {
       navItems.push({ name: 'Order Queue', path: '/admin/orders', icon: ListOrdered });
       navItems.push({ name: 'Funds Approvals', path: '/admin/transactions', icon: ShieldAlert });
-      navItems.push({ name: 'Settings', path: '/settings', icon: SettingsIcon });
+      // Settings link removed to hide it from UI. Access via URL only.
   }
-  // Client-side Settings link removed requested.
-  // Access is now only via the secret lock button or direct URL.
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
@@ -165,13 +167,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="flex flex-col items-center text-center">
                 <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Engineered by</p>
                 <p className="text-xs font-bold text-slate-300 mt-1">Sandeep (Chakia)</p>
-                
-                {/* SECRET ADMIN ACCESS BUTTON */}
-                {!isAdmin && (
-                  <Link to="/settings" title="Admin Login" className="mt-4 p-2 text-slate-700 hover:text-white transition-colors opacity-30 hover:opacity-100">
-                    <Lock size={14} />
-                  </Link>
-                )}
             </div>
           </div>
         </div>

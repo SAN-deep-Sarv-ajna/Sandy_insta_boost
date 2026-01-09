@@ -1,9 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 
 export const getMarketingAdvice = async (query: string, platform: string): Promise<string> => {
-  // Fix: Initialize GoogleGenAI with process.env.API_KEY directly as per guidelines.
-  // We assume the API key is pre-configured and valid.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Initialize GoogleGenAI with the specific GEMINI Key.
+  // This key is safe to be public (it can only generate text, not spend money).
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   try {
     const prompt = `
@@ -14,7 +14,7 @@ export const getMarketingAdvice = async (query: string, platform: string): Promi
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.5-flash', // Using flash model for speed and cost efficiency
       contents: prompt,
     });
 

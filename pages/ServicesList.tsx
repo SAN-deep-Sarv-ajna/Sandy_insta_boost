@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { MOCK_SERVICES } from '../constants';
 import { Search, RefreshCw, AlertCircle, Settings, ShoppingCart, Info, FileText } from 'lucide-react';
@@ -75,11 +74,6 @@ const ServicesList: React.FC = () => {
         </div>
         
         <div className="flex gap-3 shrink-0">
-           {!hasApiKey && (
-             <Link to="/settings" className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-md shadow-rose-200 font-bold text-xs uppercase tracking-wide">
-               <Settings size={16} /> Configure API
-             </Link>
-           )}
            {hasApiKey && (
              <button 
               onClick={handleSync}
