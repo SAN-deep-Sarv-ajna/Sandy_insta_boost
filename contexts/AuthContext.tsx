@@ -5,9 +5,10 @@ import {
   signOut as firebaseSignOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../lib/firebase';
-import { isAdminUnlocked } from '../services/smmProvider';
+import { isAdminUnlocked, setAdminUnlocked } from '../services/smmProvider';
+import { APP_CONFIG } from '../constants';
 
 interface UserData {
   uid: string;
@@ -39,7 +40,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(isAdminUnlocked());
 
-  // Listen for local admin unlock changes
   useEffect(() => {
     const handleStorageChange = () => {
       setIsAdmin(isAdminUnlocked());
@@ -56,27 +56,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        
+        // 🔒 SECURITY: Check if this is the Hardcoded Owner Email
+        const isOwnerEmail = firebaseUser.email === APP_CONFIG.ADMIN_EMAIL;
+
+        if (isOwnerEmail) {
+            console.log("👑 Owner Logged In: Granting Admin Access");
+            setAdminUnlocked(true);
+            setIsAdmin(true);
+        }
+
         const userRef = doc(db, 'users', firebaseUser.uid);
         
-        // Listen to real-time user data (Balance updates instantly)
         const unsubscribeSnapshot = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
+            const userData = docSnap.data();
+            
+            // 🛡️ DOUBLE CHECK: If email matches Owner but DB role is 'user', fix it.
+            // This ensures the database knows you are the admin for Security Rules logic.
+            if (isOwnerEmail && userData.role !== 'admin') {
+                updateDoc(userRef, { role: 'admin' }).catch(console.error);
+            }
+
             setUser({
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL,
-              balance: docSnap.data().balance || 0,
-              role: docSnap.data().role || 'user'
+              balance: userData.balance || 0,
+              role: userData.role || (isOwnerEmail ? 'admin' : 'user')
             });
           } else {
-            // Create user doc if it doesn't exist
+            // Create New User
             const newUser = {
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL,
               balance: 0,
-              role: 'user',
+              role: isOwnerEmail ? 'admin' : 'user', // Set role immediately if matches
               createdAt: new Date().toISOString()
             };
             setDoc(userRef, newUser);

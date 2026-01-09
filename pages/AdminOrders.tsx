@@ -2,16 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { Check, X, Loader2, ListOrdered, Link as LinkIcon, AlertTriangle } from 'lucide-react';
-import { isAdminUnlocked, placeProviderOrder } from '../services/smmProvider';
+import { placeProviderOrder } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 
 const AdminOrders: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth(); // Use isAdmin from Context (which handles Email Logic)
   const [orders, setOrders] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
-
-  // Security Check
-  const isAdmin = isAdminUnlocked();
 
   useEffect(() => {
     if (!isAdmin || !db) return;

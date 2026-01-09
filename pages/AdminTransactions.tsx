@@ -2,16 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { Check, X, Loader2, ShieldAlert, DollarSign } from 'lucide-react';
-import { isAdminUnlocked } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 
 const AdminTransactions: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth(); // Use isAdmin from Context
   const [requests, setRequests] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
-
-  // Security Check: Only show if Admin Logic is Unlocked locally AND (optionally) verify role in DB
-  const isAdmin = isAdminUnlocked();
 
   useEffect(() => {
     if (!isAdmin || !db) return;

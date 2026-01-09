@@ -1,4 +1,3 @@
-
 import { Platform, Service, ServiceType, Order, OrderStatus, UserStats } from './types';
 
 // ===========================================================================
@@ -11,9 +10,14 @@ export const APP_CONFIG = {
   // Your WhatsApp Number (Format: CountryCode+Number, e.g., 919876543210)
   WHATSAPP_NUMBER: "917494019807", 
   
-  // Security PIN to access Admin Settings/API Features
+  // Security PIN to access Admin Settings/API Features (Backup access)
   // ⚠️ CHANGE THIS BEFORE SHARING!
   ADMIN_PIN: "jokr", 
+
+  // 👑 OWNER IDENTITY (CRITICAL)
+  // Enter your Google Email here. When you login with this email, 
+  // you will automatically get Admin Access without needing the PIN.
+  ADMIN_EMAIL: "sandeep@gmail.com", // <--- REPLACE WITH YOUR EXACT GMAIL
 
   // If true, the app acts as a Catalog/WhatsApp Order bot by default.
   // You must enter the PIN in Settings to unlock API features.
