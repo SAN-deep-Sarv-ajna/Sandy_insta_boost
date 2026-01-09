@@ -132,7 +132,9 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
     // MARGIN: 50% (Selling Price = Provider Cost * 1.5)
     return data.map((item: ProviderService) => {
       const originalRate = parseFloat(item.rate);
-      const sellingRate = originalRate * 1.5; // 50% Margin added here
+      const cost = isNaN(originalRate) ? 0 : originalRate;
+      
+      const sellingRate = cost * 1.5; // 50% Margin added here
 
       return {
         id: parseInt(item.service),
@@ -140,8 +142,9 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
         type: getType(item.name),
         name: item.name,
         category: item.category,
-        rate: parseFloat(sellingRate.toFixed(2)),
-        originalRate: originalRate,
+        // Use 5 decimal places to avoid losing precision on cheap services (e.g. 0.0001)
+        rate: parseFloat(sellingRate.toFixed(5)),
+        originalRate: cost,
         min: parseInt(item.min),
         max: parseInt(item.max),
         description: item.category

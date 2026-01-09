@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MOCK_SERVICES } from '../constants';
 import { Platform, Service } from '../types';
-import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle } from 'lucide-react';
+import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle, ShieldCheck } from 'lucide-react';
 import { fetchProviderServices, placeProviderOrder, getStoredSettings } from '../services/smmProvider';
 import { Link, useSearchParams } from 'react-router-dom';
 
@@ -326,16 +326,17 @@ Proceed?
             {/* Quote & Profit Display */}
             <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <span className="text-slate-500 text-sm uppercase font-semibold">Client Price (Display)</span>
+                <span className="text-slate-500 text-sm uppercase font-semibold">Client Price (Total)</span>
                 <p className="text-3xl font-bold text-slate-900 mt-1">{formatINR(charge)}</p>
+                <p className="text-xs text-slate-400 mt-1">Includes 50% GST/Margin</p>
               </div>
               
               {isLive && currentService?.originalRate && (
                  <div>
-                    <span className="text-slate-500 text-sm uppercase font-semibold">Base Cost (Hidden)</span>
+                    <span className="text-slate-500 text-sm uppercase font-semibold">Base Cost (Provider)</span>
                     <p className="text-xl font-bold text-slate-600 mt-1">{formatINR(providerCost)}</p>
                     <span className="text-xs text-green-600 font-bold block mt-1">
-                      Profit (50% Margin): {formatINR(charge - providerCost)}
+                      GST (Margin): {formatINR(charge - providerCost)}
                     </span>
                  </div>
               )}
@@ -448,7 +449,7 @@ Proceed?
                         <span className="font-mono text-slate-600">{formatINR(currentService.originalRate)}</span>
                     </div>
                     <div className="flex justify-between items-center font-bold text-green-600">
-                        <span className="text-xs uppercase">Profit (50%)</span>
+                        <span className="text-xs uppercase">GST (50%)</span>
                         <span>{formatINR(currentService.rate - currentService.originalRate)}</span>
                     </div>
                  </div>
@@ -465,15 +466,28 @@ Proceed?
           )}
         </div>
         
+        {/* Business Safety Check Widget */}
         <div className="bg-brand-50 rounded-xl p-6 border border-brand-100">
            <h4 className="font-bold text-brand-800 mb-2 flex items-center gap-2">
-              <DollarSign size={16} /> Reseller Logic
+              <ShieldCheck size={16} /> Business Safety Check
            </h4>
-           <ul className="text-sm text-brand-900 space-y-2 list-disc list-inside">
-              <li><strong>UI Price:</strong> Base Cost * 1.5</li>
-              <li><strong>Action:</strong> Only the Base Cost is deducted from the API.</li>
-              <li><strong>Profit:</strong> The extra 50% is your margin.</li>
-           </ul>
+           <div className="space-y-3 text-sm text-brand-900">
+              <div className="flex justify-between border-b border-brand-200 pb-2">
+                  <span>Provider Rate:</span>
+                  <span className="font-mono">{currentService?.originalRate ? formatINR(currentService.originalRate) : '0.00'}</span>
+              </div>
+              <div className="flex justify-between border-b border-brand-200 pb-2">
+                  <span>Multiplier:</span>
+                  <span className="font-bold">x 1.5 (+50%)</span>
+              </div>
+              <div className="flex justify-between pt-1">
+                  <span className="font-bold">Your Price:</span>
+                  <span className="font-bold">{currentService?.rate ? formatINR(currentService.rate) : '0.00'}</span>
+              </div>
+           </div>
+           <p className="text-xs text-brand-700 mt-3 italic">
+              * The difference is collected as GST/Margin.
+           </p>
         </div>
       </div>
     </div>
