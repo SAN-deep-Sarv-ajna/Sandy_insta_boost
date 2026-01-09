@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { QrCode, Copy, Check, ShieldCheck, AlertTriangle, History, Wallet, ArrowRight, Loader2 } from 'lucide-react';
+import { QrCode, Copy, Check, ShieldCheck, AlertTriangle, History, Wallet, ArrowRight, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { getStoredSettings } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
@@ -15,7 +15,10 @@ const AddFunds: React.FC = () => {
   const [utr, setUtr] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [success, setSuccess] = useState(false);
+  
+  // Status State
+  const [status, setStatus] = useState<{type: 'success' | 'error' | 'verifying', msg: string} | null>(null);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   const [history, setHistory] = useState<any[]>([]);
 
@@ -42,29 +45,67 @@ const AddFunds: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const checkAutoVerify = async (cleanUtr: string, txId?: string) => {
+      if (txId) setCheckingId(txId);
+      else setStatus({ type: 'verifying', msg: 'Checking with bank...' });
+
+      try {
+          const res = await fetch(`/api/hooks/payment?utr=${cleanUtr}`);
+          const data = await res.json();
+
+          if (data.success && data.matched) {
+              const successMsg = 'Payment Verified Instantly! Balance Updated.';
+              if (txId) alert(successMsg);
+              else setStatus({ type: 'success', msg: successMsg });
+          } else if (data.success === false) {
+              const failMsg = 'SMS not received yet. Please wait a moment and click "Check Status" again.';
+              if (txId) alert(failMsg);
+              else setStatus({ type: 'success', msg: 'Request Submitted. Waiting for bank SMS...' });
+          } else {
+             const pendingMsg = 'Request Submitted. Funds will be added shortly.';
+             if (txId) alert(pendingMsg);
+             else setStatus({ type: 'success', msg: pendingMsg });
+          }
+      } catch (e) {
+          console.error(e);
+          if (txId) alert("Connection Error. Try again.");
+          else setStatus({ type: 'success', msg: 'Request Submitted.' });
+      } finally {
+          if (txId) setCheckingId(null);
+      }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !db) return;
     if (!amount || !utr) return alert("Please enter Amount and UTR/Reference No.");
 
     setSubmitting(true);
+    setStatus(null);
+    
+    const cleanUtr = utr.trim();
+
     try {
+      // 1. Create Pending Request
       await addDoc(collection(db, 'transactions'), {
         userId: user.uid,
         userEmail: user.email,
         amount: parseFloat(amount),
-        utr: utr.trim(),
+        utr: cleanUtr,
         type: 'CREDIT',
         status: 'PENDING',
         createdAt: serverTimestamp(),
         method: 'UPI_QR'
       });
-      setSuccess(true);
+      
+      // 2. Trigger Auto Verification
       setAmount('');
       setUtr('');
-      setTimeout(() => setSuccess(false), 5000);
+      await checkAutoVerify(cleanUtr);
+      
     } catch (e: any) {
       alert("Error submitting transaction: " + e.message);
+      setSubmitting(false);
     } finally {
       setSubmitting(false);
     }
@@ -180,15 +221,31 @@ const AddFunds: React.FC = () => {
                 </button>
             </form>
 
-            {success && (
-                <div className="mt-4 p-4 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                    <div className="bg-emerald-200 p-1 rounded-full"><Check size={14} /></div>
+            {status && (
+                <div className={`mt-4 p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${
+                    status.type === 'verifying' ? 'bg-blue-50 text-blue-800 border-blue-200' : 
+                    status.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                    'bg-amber-50 text-amber-800 border-amber-200'
+                }`}>
+                    <div className={`p-1 rounded-full ${status.type === 'verifying' ? 'bg-blue-200' : 'bg-emerald-200'}`}>
+                        {status.type === 'verifying' ? <RefreshCw className="animate-spin" size={14} /> : <Check size={14} />}
+                    </div>
                     <div>
-                        <p className="font-bold text-sm">Request Submitted!</p>
-                        <p className="text-xs opacity-80">Admin will approve funds shortly.</p>
+                        <p className="font-bold text-sm">{status.type === 'verifying' ? 'Processing...' : 'Status Update'}</p>
+                        <p className="text-xs opacity-80">{status.msg}</p>
                     </div>
                 </div>
             )}
+            
+            <div className="mt-6 pt-6 border-t border-slate-100">
+               <div className="flex items-start gap-3 opacity-60">
+                   <Smartphone className="text-slate-400 mt-0.5" size={16} />
+                   <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                      <span className="font-bold">Auto-Verification:</span> System scans for incoming Bank SMS matching the UTR. 
+                      Ensure you use the correct UTR from your UPI app.
+                   </p>
+               </div>
+            </div>
         </div>
       </div>
 
@@ -212,30 +269,49 @@ const AddFunds: React.FC = () => {
             ) : (
                 <div className="divide-y divide-slate-100">
                     {history.map((tx) => (
-                        <div key={tx.id} className="p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm ${
-                                    tx.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-600' :
-                                    tx.status === 'PENDING' ? 'bg-amber-100 text-amber-600' :
-                                    'bg-rose-100 text-rose-600'
-                                }`}>
-                                    {tx.status === 'COMPLETED' ? <Check size={16} strokeWidth={3} /> :
-                                     tx.status === 'PENDING' ? <Loader2 size={16} className="animate-spin" /> :
-                                     <AlertTriangle size={16} />}
+                        <div key={tx.id} className="p-5 hover:bg-slate-50 transition-colors">
+                            <div className="flex items-start justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-white shadow-sm shrink-0 ${
+                                        tx.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-600' :
+                                        tx.status === 'PENDING' ? 'bg-amber-100 text-amber-600' :
+                                        'bg-rose-100 text-rose-600'
+                                    }`}>
+                                        {tx.status === 'COMPLETED' ? <Check size={16} strokeWidth={3} /> :
+                                        tx.status === 'PENDING' ? <Loader2 size={16} className="animate-spin" /> :
+                                        <AlertTriangle size={16} />}
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-slate-900 text-sm">Funds Added</p>
+                                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">UTR: {tx.utr}</p>
+                                        <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                            {tx.createdAt?.toDate ? tx.createdAt.toDate().toLocaleString() : 'Just now'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="font-bold text-slate-900 text-sm">Funds Added</p>
-                                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">UTR: {tx.utr}</p>
+                                <div className="text-right">
+                                    <p className="font-black text-slate-800">+₹{tx.amount}</p>
+                                    <span className={`text-[10px] font-bold uppercase tracking-wide block ${
+                                        tx.status === 'COMPLETED' ? 'text-emerald-600' :
+                                        tx.status === 'PENDING' ? 'text-amber-500' :
+                                        'text-rose-500'
+                                    }`}>{tx.status}</span>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <p className="font-black text-slate-800">+₹{tx.amount}</p>
-                                <span className={`text-[10px] font-bold uppercase tracking-wide ${
-                                     tx.status === 'COMPLETED' ? 'text-emerald-600' :
-                                     tx.status === 'PENDING' ? 'text-amber-500' :
-                                     'text-rose-500'
-                                }`}>{tx.status}</span>
-                            </div>
+                            
+                            {/* Manual Re-check Button for Pending Items */}
+                            {tx.status === 'PENDING' && (
+                                <div className="mt-3 pl-14">
+                                    <button 
+                                        onClick={() => checkAutoVerify(tx.utr, tx.id)}
+                                        disabled={checkingId === tx.id}
+                                        className="text-[10px] bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold border border-blue-100 flex items-center gap-2 hover:bg-blue-100 transition-colors"
+                                    >
+                                        {checkingId === tx.id ? <Loader2 size={10} className="animate-spin"/> : <RefreshCw size={10} />}
+                                        {checkingId === tx.id ? 'Checking...' : 'Check Status'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
