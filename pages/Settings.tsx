@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag, Eye, EyeOff, Lock, QrCode } from 'lucide-react';
+import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag, Eye, EyeOff, Lock, QrCode, Copy, Check } from 'lucide-react';
 import { getStoredSettings, saveSettings, getBalance, fetchLiveRate } from '../services/smmProvider';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,6 +17,7 @@ const Settings: React.FC = () => {
   const [balanceData, setBalanceData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRateLoading, setIsRateLoading] = useState(false);
+  const [copiedUpi, setCopiedUpi] = useState(false);
   
   const navigate = useNavigate();
 
@@ -58,6 +59,13 @@ const Settings: React.FC = () => {
     }
     setIsRateLoading(false);
   }
+
+  const handleCopyUpi = () => {
+    if (!upiId) return;
+    navigator.clipboard.writeText(upiId);
+    setCopiedUpi(true);
+    setTimeout(() => setCopiedUpi(false), 2000);
+  };
 
   const handleSave = () => {
     if (!apiKey.trim()) {
@@ -132,13 +140,23 @@ const Settings: React.FC = () => {
                 <QrCode size={16} /> Payment Setup (UPI QR)
              </label>
              <div className="space-y-2">
-                 <input 
-                  type="text" 
-                  value={upiId}
-                  onChange={(e) => setUpiId(e.target.value)}
-                  placeholder="e.g. sandeep@okaxis"
-                  className="w-full p-2 border border-blue-200 rounded text-blue-900 placeholder-blue-300 outline-none focus:ring-2 focus:ring-blue-400 font-mono"
-                />
+                 <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={upiId}
+                      onChange={(e) => setUpiId(e.target.value)}
+                      placeholder="e.g. sandeep@okaxis"
+                      className="w-full p-2 border border-blue-200 rounded text-blue-900 placeholder-blue-300 outline-none focus:ring-2 focus:ring-blue-400 font-mono"
+                    />
+                    <button
+                        onClick={handleCopyUpi}
+                        className="bg-blue-200 hover:bg-blue-300 text-blue-800 p-2 rounded transition-colors flex items-center justify-center min-w-[40px] shadow-sm"
+                        title="Copy UPI ID"
+                        type="button"
+                    >
+                        {copiedUpi ? <Check size={18} /> : <Copy size={18} />}
+                    </button>
+                 </div>
                 <div className="text-xs text-blue-700 leading-relaxed">
                    Enter your <strong>UPI ID</strong> (VPA). The app will automatically generate a QR code and show a "Payment Info" button in the sidebar for your clients to scan and pay.
                    <br/>

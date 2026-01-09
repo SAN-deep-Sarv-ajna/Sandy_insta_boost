@@ -275,6 +275,35 @@ export const placeProviderOrder = async (serviceId: number, link: string, quanti
   }
 };
 
+export const fetchOrderStatus = async (orderId: string | number) => {
+  const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
+  if (!apiKey) throw new Error("API Key is missing.");
+
+  try {
+    const params = new URLSearchParams();
+    params.append('key', apiKey);
+    params.append('action', 'status');
+    params.append('order', orderId.toString());
+
+    const targetUrl = buildTargetUrl(apiUrl, proxyUrl, useProxy);
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+    
+    const text = await response.text();
+    if (text.trim().startsWith('<')) throw new Error("Proxy Error");
+
+    const data = JSON.parse(text);
+    return data;
+  } catch (e) {
+    console.error("Failed to fetch order status", e);
+    throw e;
+  }
+}
+
 export const getBalance = async () => {
    const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
    if (!apiKey) return null;

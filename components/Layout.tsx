@@ -10,7 +10,8 @@ import {
   QrCode,
   X,
   Copy,
-  Check
+  Check,
+  Activity
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 
@@ -53,6 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navItems = [
     { name: 'Service Catalog', path: '/', icon: List },
     { name: 'Price Calculator', path: '/calculator', icon: Calculator },
+    { name: 'Track Order', path: '/track', icon: Activity },
     { name: 'AI Strategy', path: '/ai-strategy', icon: Bot },
   ];
 
