@@ -38,12 +38,11 @@ export const getStoredSettings = () => {
   const globalDiscount = parseFloat(localStorage.getItem(STORAGE_KEY_GLOBAL_DISCOUNT) || '0');
   const upiId = localStorage.getItem(STORAGE_KEY_UPI_ID) || '';
 
-  // SECURITY: Only return the API Key if Admin is Unlocked
-  const rawApiKey = localStorage.getItem(STORAGE_KEY_API) || '';
-  const apiKey = isAdminUnlocked() ? rawApiKey : '';
-
+  // SECURITY: Prioritize LocalStorage (Admin), fallback to Config (Public Client)
+  const rawApiKey = localStorage.getItem(STORAGE_KEY_API) || APP_CONFIG.PROVIDER_API_KEY || '';
+  
   return {
-    apiKey,
+    apiKey: rawApiKey,
     proxyUrl: localStorage.getItem(STORAGE_KEY_PROXY) || INTERNAL_PROXY_URL,
     useProxy: useProxy,
     apiUrl: DEFAULT_API_URL,
@@ -63,7 +62,7 @@ export const saveSettings = (
     exchangeRate: number, 
     autoExchangeRate: boolean, 
     globalDiscount: number,
-    hideSettings: boolean, // This parameter is now largely ignored in favor of PIN auth
+    hideSettings: boolean,
     upiId: string
 ) => {
   localStorage.setItem(STORAGE_KEY_API, apiKey.trim());
@@ -136,9 +135,11 @@ export const fetchLiveRate = async (): Promise<number | null> => {
 };
 
 export const fetchProviderServices = async (): Promise<Service[]> => {
-  // 1. Check if Admin is authenticated. If not, throw error or return empty to force Mock usage
+  // Only Admin can FETCH full list to protect pricing data
   if (!isAdminUnlocked()) {
-      throw new Error("Admin Access Required to fetch live services.");
+      // Return empty or throw error to force using MOCK_SERVICES for clients
+      // This ensures clients only see the JSON you generated/exported
+      return []; 
   }
 
   const { apiKey, proxyUrl, useProxy, apiUrl, exchangeRate, autoExchangeRate, globalDiscount } = getStoredSettings();
@@ -216,11 +217,10 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
 };
 
 export const placeProviderOrder = async (serviceId: number, link: string, quantity: number) => {
-  // Block if not admin
-  if (!isAdminUnlocked()) throw new Error("Unauthorized: Client mode cannot place API orders.");
-
   const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
-  if (!apiKey) throw new Error("API Key is missing.");
+  
+  // Ensure we have a key (Either Admin Local or Constant)
+  if (!apiKey) throw new Error("System Error: API Key not configured. Contact Support.");
 
   try {
     const params = new URLSearchParams();
@@ -238,13 +238,13 @@ export const placeProviderOrder = async (serviceId: number, link: string, quanti
     });
 
     const text = await response.text();
-    if (text.trim().startsWith('<')) throw new Error("Proxy Error");
+    if (text.trim().startsWith('<')) throw new Error("Proxy Connection Error");
 
     let data;
     try {
       data = JSON.parse(text);
     } catch (e) {
-      throw new Error(`Invalid response.`);
+      throw new Error(`Invalid provider response.`);
     }
     return data;
   } catch (error) {
@@ -254,15 +254,8 @@ export const placeProviderOrder = async (serviceId: number, link: string, quanti
 };
 
 export const fetchOrderStatus = async (orderId: string | number) => {
-  // Tracking is allowed for public (usually), but SMMDevil needs key.
-  // Limitation: If client doesn't have key, they can't track via API directly.
-  // We can only allow tracking if Admin Key is present.
-  if (!isAdminUnlocked()) {
-      return { error: "Login as Admin to track live API orders, or ask support." };
-  }
-  
   const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
-  if (!apiKey) throw new Error("API Key is missing.");
+  if (!apiKey) throw new Error("System Error: Configuration missing.");
 
   try {
     const params = new URLSearchParams();

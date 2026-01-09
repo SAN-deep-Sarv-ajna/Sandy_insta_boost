@@ -1,10 +1,12 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { MOCK_SERVICES, APP_CONFIG } from '../constants';
 import { Platform, Service } from '../types';
-import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle, ShieldCheck, Tag, MessageCircle, Eye, EyeOff, ShoppingBag } from 'lucide-react';
+import { TrendingUp, Info, Copy, Check, Server, DollarSign, XCircle, ShieldCheck, ShoppingBag, Loader2, Zap, AlertTriangle, MessageCircle, Wallet } from 'lucide-react';
 import { fetchProviderServices, placeProviderOrder, getStoredSettings, isAdminUnlocked } from '../services/smmProvider';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { db } from '../lib/firebase';
+import { doc, runTransaction, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const NewOrder: React.FC = () => {
   // Services State
@@ -12,9 +14,10 @@ const NewOrder: React.FC = () => {
   const [liveServices, setLiveServices] = useState<Service[]>([]); // The Admin/API List
   const [displayedServices, setDisplayedServices] = useState<Service[]>(MOCK_SERVICES); // What is currently shown
   
-  const [isLiveConnection, setIsLiveConnection] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const { user, signInWithGoogle } = useAuth();
+  const navigate = useNavigate();
   
   // Toggle for Admin to see what clients see
   const [viewMode, setViewMode] = useState<'ADMIN' | 'CLIENT'>('CLIENT');
@@ -41,9 +44,6 @@ const NewOrder: React.FC = () => {
     const adminStatus = isAdminUnlocked();
     setIsAdmin(adminStatus);
     
-    // Default Behavior:
-    // If Admin -> Try to load Live Data, set view to Admin.
-    // If Client -> Set view to Client, use Mock Data.
     if(adminStatus && getStoredSettings().apiKey) {
       loadApiServices();
       setViewMode('ADMIN');
@@ -71,15 +71,12 @@ const NewOrder: React.FC = () => {
       const data = await fetchProviderServices();
       if(data && data.length > 0) {
         setLiveServices(data);
-        setIsLiveConnection(true);
-        // If we are currently in Admin mode, update the display immediately
         if (viewMode === 'ADMIN') {
             setDisplayedServices(data);
         }
       }
     } catch (e: any) {
       console.error("Failed to load services", e);
-      // Fallback to client mode if API fails
       if (viewMode === 'ADMIN') {
           setOrderResult({ success: false, message: "API Connection Failed. Switched to Offline Catalog." });
           setViewMode('CLIENT');
@@ -154,57 +151,131 @@ const NewOrder: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 🟢 CLIENT MODE: Send to WhatsApp
-  const handleWhatsAppOrder = () => {
-    if (!currentService || !quantity || !link) return alert("Please fill all fields.");
-    
-    const message = `
-*NEW ORDER REQUEST* 🚀
-------------------
-*Service:* ${currentService.name} (ID: ${currentService.id})
-*Link:* ${link}
-*Quantity:* ${quantity}
-*Price Quote:* ${formatINR(charge)}
-------------------
-Please confirm and share payment QR.
-    `.trim();
-    
-    const url = `https://wa.me/${APP_CONFIG.WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
-  };
-
-  // 🔴 ADMIN MODE: Direct API Order
-  const handleAdminOrder = async () => {
+  // CLIENT WALLET PURCHASE LOGIC
+  const handlePurchase = async () => {
+    if (!user) {
+        alert("Please login first to place an order.");
+        return signInWithGoogle();
+    }
     if (!currentService) return alert("Select service");
-    if (!quantity) return alert("Enter quantity");
+    if (!quantity || quantity < currentService.min || quantity > currentService.max) return alert(`Quantity must be between ${currentService.min} and ${currentService.max}`);
     if (!link) return alert("Enter link");
+    if (!db) return alert("Database error.");
 
-    if (viewMode === 'CLIENT') {
-        return alert("⚠️ You are in Client View (Catalog Mode).\n\nSwitch to 'Admin View' to verify the real Base Rate before placing an API order.");
+    // 1. Balance Check (Client Side Pre-Check)
+    if (user.balance < charge) {
+        return alert(`Insufficient Balance! You need ₹${formatINR(charge - user.balance)} more.\nPlease go to 'Add Funds'.`);
     }
 
-    if (!window.confirm(`CONFIRM API ORDER?\n\nService: ${currentService.name}\n\nClient Pays: ${formatINR(charge)}\nBASE RATE: ${formatINR(providerCost)}\nTAX/FEES: ${formatINR(charge - providerCost)}\n\nProceed?`)) return;
+    if (!window.confirm(`Confirm Order for ₹${formatINR(charge)}?`)) return;
 
     setPlacingOrder(true);
     setOrderResult(null);
 
     try {
-      const result = await placeProviderOrder(currentService.id, link, quantity);
-      
-      if (result.order) {
-        setOrderResult({ success: true, message: `SUCCESS! Order ID: ${result.order}` });
-        setQuantity(0);
-        setLink('');
-      } else if (result.error) {
-         setOrderResult({ success: false, message: `Provider Error: ${result.error}` });
-      } else {
-         setOrderResult({ success: false, message: `Unknown: ${JSON.stringify(result)}` });
-      }
+        // 2. FIRESTORE TRANSACTION (Deduct Money)
+        let providerOrderId = null;
+        let errorMsg = "";
+
+        await runTransaction(db, async (transaction) => {
+            const userRef = doc(db, 'users', user.uid);
+            const userDoc = await transaction.get(userRef);
+            
+            if (!userDoc.exists()) throw "User does not exist!";
+            
+            const currentBalance = userDoc.data().balance || 0;
+            
+            if (currentBalance < charge) {
+                throw "Insufficient funds during transaction.";
+            }
+
+            // Deduct
+            const newBalance = currentBalance - charge;
+            transaction.update(userRef, { balance: newBalance });
+
+            // 3. CALL SMM API (Inside transaction logic flow, but actually executed after if success, 
+            // generally we do it optimistic or with cloud functions. 
+            // Here we do it client side for this architecture)
+        });
+
+        // 4. PLACE ACTUAL ORDER (If deduction success)
+        try {
+            const result = await placeProviderOrder(currentService.id, link, quantity);
+            
+            if (result.order) {
+                providerOrderId = result.order;
+            } else if (result.error) {
+                errorMsg = result.error;
+                throw new Error(result.error);
+            } else {
+                throw new Error("Unknown Provider Error");
+            }
+        } catch (apiError: any) {
+            // 5. ROLLBACK (REFUND) IF API FAILS
+            console.error("API Failed, Refunding...", apiError);
+            await runTransaction(db, async (transaction) => {
+                const userRef = doc(db, 'users', user.uid);
+                const userDoc = await transaction.get(userRef);
+                const currentBalance = userDoc.data().balance || 0;
+                transaction.update(userRef, { balance: currentBalance + charge });
+            });
+            throw new Error(`Order Failed: ${apiError.message || "Provider Error"}. Money Refunded.`);
+        }
+
+        // 6. RECORD HISTORY (If Success)
+        if (providerOrderId) {
+            await addDoc(collection(db, 'orders'), {
+                userId: user.uid,
+                serviceId: currentService.id,
+                serviceName: currentService.name,
+                link: link,
+                quantity: quantity,
+                charge: charge,
+                providerOrderId: providerOrderId,
+                status: 'PENDING',
+                createdAt: serverTimestamp()
+            });
+            
+            // Transaction Log
+            await addDoc(collection(db, 'transactions'), {
+                userId: user.uid,
+                amount: charge,
+                type: 'DEBIT',
+                reason: `Order #${providerOrderId}`,
+                createdAt: serverTimestamp(),
+                status: 'COMPLETED'
+            });
+
+            setOrderResult({ success: true, message: `Order Placed Successfully! ID: ${providerOrderId}` });
+            setQuantity(0);
+            setLink('');
+        }
+
     } catch (e: any) {
-      setOrderResult({ success: false, message: e.message || "Network Error" });
+        setOrderResult({ success: false, message: e.message || "Transaction Failed" });
     } finally {
-      setPlacingOrder(false);
+        setPlacingOrder(false);
     }
+  };
+
+  const handleWhatsAppOrder = () => {
+    if (!currentService || !quantity || !link) return alert("Please fill all fields.");
+    const message = `*NEW ORDER REQUEST* 🚀\n------------------\n*Service:* ${currentService.name} (ID: ${currentService.id})\n*Link:* ${link}\n*Quantity:* ${quantity}\n*Price Quote:* ${formatINR(charge)}\n------------------\nPlease confirm and share payment QR.`;
+    const url = `https://wa.me/${APP_CONFIG.WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  // ADMIN OVERRIDE ORDER (Bypasses wallet)
+  const handleAdminOrder = async () => {
+    if (!currentService || !quantity || !link) return alert("Fill all fields");
+    if (!window.confirm("Place Direct API Order (Bypass Wallet)?")) return;
+    setPlacingOrder(true);
+    try {
+        const res = await placeProviderOrder(currentService.id, link, quantity);
+        if(res.order) setOrderResult({success: true, message: `Admin Order Placed: ${res.order}`});
+        else setOrderResult({success: false, message: res.error || "Failed"});
+    } catch(e:any) { setOrderResult({success: false, message: e.message}); }
+    setPlacingOrder(false);
   };
 
   const formatINR = (amount: number) => {
@@ -215,52 +286,24 @@ Please confirm and share payment QR.
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="lg:col-span-2 space-y-6">
         
-        {/* ADMIN CONTROLS - COMPACT */}
+        {/* ADMIN CONTROLS */}
         {isAdmin && (
             <div className="bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-lg border border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                     <div className="bg-brand-500/20 p-2 rounded-lg">
-                        <ShieldCheck className="text-brand-400" size={20} />
-                     </div>
+                     <div className="bg-brand-500/20 p-2 rounded-lg"><ShieldCheck className="text-brand-400" size={20} /></div>
                      <div>
                          <h3 className="font-bold text-sm text-white tracking-tight">Admin Mode</h3>
-                         <p className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 uppercase tracking-wide">
-                            {viewMode === 'ADMIN' ? (
-                                <span className="text-brand-300 flex items-center gap-1"><Server size={10}/> Live API Source</span>
-                            ) : (
-                                <span className="text-amber-300 flex items-center gap-1"><Eye size={10}/> Client Catalog View</span>
-                            )}
+                         <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">
+                            {viewMode === 'ADMIN' ? 'Live API View' : 'Client Catalog View'}
                          </p>
                      </div>
                 </div>
-                
-                <div className="flex items-center gap-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 hidden sm:block">
-                        {viewMode === 'ADMIN' ? 'Admin View' : 'Client View'}
-                    </span>
-                    <button 
-                        onClick={() => setViewMode(viewMode === 'ADMIN' ? 'CLIENT' : 'ADMIN')}
-                        className={`w-12 h-7 rounded-full p-1 transition-all duration-300 flex items-center shadow-inner ${viewMode === 'ADMIN' ? 'bg-brand-600' : 'bg-slate-700'}`}
-                        aria-label="Toggle View Mode"
-                    >
-                        <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ${viewMode === 'ADMIN' ? 'translate-x-5' : 'translate-x-0'}`}></div>
-                    </button>
-                </div>
-            </div>
-        )}
-
-        {/* Client Welcome Message (Only if NOT Admin) */}
-        {!isAdmin && (
-            <div className="bg-white border border-brand-100 p-5 rounded-2xl flex items-start gap-4 shadow-sm">
-                <div className="bg-brand-50 p-2.5 rounded-full shrink-0">
-                    <Info className="text-brand-600" size={24} />
-                </div>
-                <div>
-                    <h3 className="font-bold text-slate-900 text-lg tracking-tight">Price Calculator</h3>
-                    <p className="text-sm text-slate-500 mt-1 leading-relaxed font-medium">
-                        Select a service to calculate your exact cost. When you are ready, click <strong>"Order via WhatsApp"</strong> to send your request directly to our team for instant processing.
-                    </p>
-                </div>
+                <button 
+                    onClick={() => setViewMode(viewMode === 'ADMIN' ? 'CLIENT' : 'ADMIN')}
+                    className={`w-12 h-7 rounded-full p-1 transition-all duration-300 flex items-center shadow-inner ${viewMode === 'ADMIN' ? 'bg-brand-600' : 'bg-slate-700'}`}
+                >
+                    <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ${viewMode === 'ADMIN' ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                </button>
             </div>
         )}
 
@@ -269,29 +312,16 @@ Please confirm and share payment QR.
             <div className={`p-2 rounded-xl ${viewMode === 'ADMIN' ? "bg-brand-100 text-brand-600" : "bg-slate-100 text-slate-600"}`}>
                 {viewMode === 'ADMIN' ? <Server size={24} /> : <TrendingUp size={24} />}
             </div>
-            {viewMode === 'ADMIN' ? 'Direct Order' : 'New Order'}
+            {viewMode === 'ADMIN' ? 'Admin Direct Order' : 'Place Order'}
           </h2>
           
           <div className="space-y-8">
-            
             {/* Category Selector */}
             <div>
               <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Select Platform</label>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {Object.values(Platform).filter(p => p !== 'Other').map((platform) => (
-                  <button
-                    key={platform}
-                    type="button"
-                    onClick={() => setSelectedPlatform(platform)}
-                    className={`
-                      py-3.5 px-4 rounded-xl border text-sm font-bold transition-all duration-200
-                      ${selectedPlatform === platform 
-                        ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-500 shadow-sm' 
-                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50'}
-                    `}
-                  >
-                    {platform}
-                  </button>
+                  <button key={platform} type="button" onClick={() => setSelectedPlatform(platform)} className={`py-3.5 px-4 rounded-xl border text-sm font-bold transition-all duration-200 ${selectedPlatform === platform ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-500 shadow-sm' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50'}`}>{platform}</button>
                 ))}
               </div>
             </div>
@@ -299,137 +329,93 @@ Please confirm and share payment QR.
             {/* Service Selector */}
             <div>
               <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Choose Service</label>
-              <select
-                value={selectedServiceId}
-                onChange={(e) => setSelectedServiceId(Number(e.target.value))}
-                className="w-full rounded-xl border-slate-200 border-2 p-4 text-slate-900 font-semibold bg-white focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all cursor-pointer appearance-none text-sm"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: `right 0.5rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em` }}
-              >
+              <select value={selectedServiceId} onChange={(e) => setSelectedServiceId(Number(e.target.value))} className="w-full rounded-xl border-slate-200 border-2 p-4 text-slate-900 font-semibold bg-white focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all cursor-pointer appearance-none text-sm">
                 {availableServices.length === 0 && <option value="0">No services found for {selectedPlatform}</option>}
                 {availableServices.map((service) => (
-                  <option key={service.id} value={service.id} className="text-slate-900 font-medium py-2">
-                    {service.id} - {service.name} - {formatINR(service.rate)}
-                  </option>
+                  <option key={service.id} value={service.id}>{service.id} - {service.name} - {formatINR(service.rate)}</option>
                 ))}
               </select>
             </div>
 
-            {/* Link Input */}
+            {/* Inputs */}
             <div>
               <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Target Link</label>
-              <input
-                type="text"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                placeholder="https://instagram.com/p/..."
-                className="w-full rounded-xl border-slate-200 border p-4 font-semibold text-slate-900 bg-slate-50 placeholder:text-slate-400 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all text-sm"
-              />
+              <input type="text" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://instagram.com/p/..." className="w-full rounded-xl border-slate-200 border p-4 font-semibold text-slate-900 bg-slate-50 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all text-sm" />
             </div>
-
-            {/* Quantity Input */}
             <div>
               <label className="block text-xs font-extrabold text-slate-500 mb-3 uppercase tracking-wider">Quantity</label>
               <div className="relative">
-                  <input
-                    type="number"
-                    min={currentService?.min}
-                    max={currentService?.max}
-                    value={quantity || ''}
-                    onChange={(e) => setQuantity(Number(e.target.value))}
-                    placeholder={`Min: ${currentService?.min || 0} - Max: ${currentService?.max || 0}`}
-                    className="w-full rounded-xl border-slate-200 border p-4 font-mono font-bold text-slate-900 bg-slate-50 placeholder:text-slate-400 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all"
-                  />
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded border border-slate-200 font-mono">
-                      {currentService?.min || 0} - {currentService?.max || 0}
-                  </div>
+                  <input type="number" min={currentService?.min} max={currentService?.max} value={quantity || ''} onChange={(e) => setQuantity(Number(e.target.value))} placeholder={`Min: ${currentService?.min || 0} - Max: ${currentService?.max || 0}`} className="w-full rounded-xl border-slate-200 border p-4 font-mono font-bold text-slate-900 bg-slate-50 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all" />
               </div>
             </div>
 
             {/* Quote Display */}
             <div className="bg-gradient-to-br from-slate-50 to-white rounded-2xl p-8 border border-slate-200 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-brand-50 rounded-full blur-2xl opacity-50"></div>
-                
-                <span className="text-slate-500 text-xs font-extrabold uppercase tracking-widest relative z-10">Total Estimated Cost</span>
+                <span className="text-slate-500 text-xs font-extrabold uppercase tracking-widest relative z-10">Total Cost</span>
                 <p className="text-4xl font-black text-slate-900 mt-2 tracking-tighter relative z-10 flex items-baseline gap-1">
-                    {formatINR(charge)}
-                    <span className="text-sm font-bold text-slate-400 ml-2 tracking-normal">INR</span>
+                    {formatINR(charge)} <span className="text-sm font-bold text-slate-400 ml-2 tracking-normal">INR</span>
                 </p>
-                
-                {/* INVOICE BREAKDOWN - ONLY VISIBLE IN ADMIN MODE */}
-                {viewMode === 'ADMIN' && currentService && (
-                    <div className="mt-6 pt-6 border-t border-slate-200 grid grid-cols-2 gap-4 relative z-10">
-                        <div>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Base Rate</span>
-                            <p className="text-slate-600 font-mono font-bold text-lg mt-1 tracking-tight">{formatINR(providerCost)}</p>
-                        </div>
-                        <div>
-                            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">GST & Taxes</span>
-                            <p className="text-emerald-600 font-mono font-bold text-lg mt-1 tracking-tight">+{formatINR(charge - providerCost)}</p>
-                        </div>
-                    </div>
-                )}
             </div>
 
             {/* ACTION BUTTONS */}
             <div className="flex flex-col sm:flex-row gap-4 pt-2">
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  disabled={!quantity || quantity <= 0}
-                  className="flex-1 flex justify-center items-center gap-2 font-bold py-4 px-6 rounded-xl border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all active:scale-[0.98] uppercase tracking-wide text-xs"
-                >
-                  {copied ? <Check size={18} className="text-emerald-500" /> : <Copy size={18} />}
-                  {copied ? 'Copied!' : 'Copy Quote'}
-                </button>
-
-                {isAdmin ? (
-                    /* ADMIN BUTTON: Logic changes based on View Mode */
-                    <button
-                    type="button"
-                    onClick={handleAdminOrder}
-                    disabled={placingOrder}
-                    className={`
-                        flex-[2] flex justify-center items-center gap-3 font-bold py-4 px-6 rounded-xl shadow-lg transition-all text-white uppercase tracking-wide text-xs
-                        ${viewMode === 'CLIENT' ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (placingOrder ? 'bg-slate-700' : 'bg-slate-900 hover:bg-slate-800 active:scale-[0.98] shadow-slate-900/20')}
-                    `}
-                    >
-                    {viewMode === 'CLIENT' ? 'Switch to Admin View to Order' : (placingOrder ? 'Processing...' : 'BUY WITH SANDEEP BHAI')}
-                    <Server size={18} />
+                {viewMode === 'ADMIN' ? (
+                    <button type="button" onClick={handleAdminOrder} disabled={placingOrder} className="flex-[2] flex justify-center items-center gap-3 font-bold py-4 px-6 rounded-xl shadow-lg bg-slate-900 text-white hover:bg-slate-800 transition-all uppercase tracking-wide text-xs">
+                       {placingOrder ? <Loader2 className="animate-spin" /> : <Server size={18} />} {placingOrder ? 'Processing...' : 'Admin API Force'}
                     </button>
                 ) : (
-                    /* CLIENT BUTTON: WhatsApp */
-                    <button
-                    type="button"
-                    onClick={handleWhatsAppOrder}
-                    className="flex-[2] flex justify-center items-center gap-3 font-bold py-4 px-6 rounded-xl shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all hover:shadow-emerald-600/30 active:scale-[0.98] uppercase tracking-wide text-xs"
-                    >
-                    Order via WhatsApp
-                    <MessageCircle size={18} />
-                    </button>
+                    <>
+                        {/* WALLET PAY BUTTON */}
+                        <button
+                            type="button"
+                            onClick={handlePurchase}
+                            disabled={placingOrder || !user}
+                            className={`flex-[2] flex justify-center items-center gap-3 font-bold py-4 px-6 rounded-xl shadow-lg transition-all uppercase tracking-wide text-xs ${user && user.balance >= charge ? 'bg-brand-600 hover:bg-brand-700 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                        >
+                            {placingOrder ? <Loader2 className="animate-spin" /> : <Zap size={18} />}
+                            {placingOrder ? 'Processing...' : (user ? (user.balance >= charge ? 'Pay with Wallet' : 'Insufficient Funds') : 'Login to Pay')}
+                        </button>
+                        
+                        {/* WHATSAPP FALLBACK */}
+                        <button type="button" onClick={handleWhatsAppOrder} className="flex-1 flex justify-center items-center gap-2 font-bold py-4 px-6 rounded-xl border-2 border-emerald-100 text-emerald-700 hover:bg-emerald-50 transition-all uppercase tracking-wide text-xs">
+                            <MessageCircle size={18} /> WhatsApp
+                        </button>
+                    </>
                 )}
             </div>
 
-            {/* Result Message (Admin Only) */}
+            {/* Result Message */}
             {orderResult && (
               <div className={`p-5 rounded-xl text-sm font-medium flex items-center gap-3 border ${orderResult.success ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
-                 <div className={`p-2 rounded-full ${orderResult.success ? 'bg-green-200' : 'bg-red-200'}`}>
-                    {orderResult.success ? <Check size={16} className="text-green-800" /> : <XCircle size={16} className="text-red-800" />}
-                 </div>
+                 {orderResult.success ? <Check size={16} /> : <XCircle size={16} />}
                  {orderResult.message}
               </div>
             )}
-
           </div>
         </div>
       </div>
 
+      {/* Sidebar Info */}
       <div className="lg:col-span-1 space-y-6">
+        {/* Wallet Card */}
+        {user && (
+            <div className="bg-gradient-to-br from-brand-600 to-brand-700 rounded-2xl shadow-lg p-6 text-white relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-white/20 rounded-lg"><Wallet size={20} /></div>
+                    <span className="font-bold uppercase tracking-widest text-xs opacity-80">Your Wallet</span>
+                </div>
+                <p className="text-3xl font-mono font-bold tracking-tight mb-6">₹{user.balance.toFixed(2)}</p>
+                <button onClick={() => navigate('/add-funds')} className="w-full bg-white text-brand-700 font-bold py-3 rounded-xl text-xs uppercase tracking-wide hover:bg-brand-50 transition-colors shadow-sm">
+                    + Add Funds
+                </button>
+            </div>
+        )}
+
         {/* Service Details Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sticky top-24">
           <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-3 tracking-tight">
-            <div className="bg-brand-100 p-2 rounded-lg">
-                <ShoppingBag size={20} className="text-brand-600" />
-            </div>
+            <div className="bg-brand-100 p-2 rounded-lg"><ShoppingBag size={20} className="text-brand-600" /></div>
             Service Info
           </h3>
           {currentService ? (
@@ -448,24 +434,6 @@ Please confirm and share payment QR.
                   {currentService.description || 'No description available'}
                 </div>
               </div>
-              
-              {viewMode === 'ADMIN' && (
-                  <div className="mt-6 p-4 bg-slate-900 text-slate-300 rounded-xl text-xs space-y-2 font-mono">
-                      <p className="font-bold text-white uppercase border-b border-slate-700 pb-2 mb-2 tracking-wider">Admin Debug Info</p>
-                      <div className="flex justify-between">
-                          <span>Service ID:</span>
-                          <span className="text-white">{currentService.id}</span>
-                      </div>
-                      <div className="flex justify-between">
-                          <span>Type:</span>
-                          <span className="text-white">{currentService.type}</span>
-                      </div>
-                      <div className="flex justify-between">
-                          <span>Category:</span>
-                          <span className="text-white text-right max-w-[150px] truncate">{currentService.category}</span>
-                      </div>
-                  </div>
-              )}
             </div>
           ) : (
             <div className="text-slate-400 text-center py-10 flex flex-col items-center">
