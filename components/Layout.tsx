@@ -53,8 +53,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const upiId = settings.upiId;
 
   const navItems = [
-    { name: 'Service Catalog', path: '/', icon: List },
-    { name: 'Price Calculator', path: '/calculator', icon: Calculator },
+    { name: 'Services (Chakia)', path: '/', icon: List },
+    { name: 'New Order', path: '/calculator', icon: Calculator },
     { name: 'Track Order', path: '/track', icon: Activity },
     { name: 'AI Strategy', path: '/ai-strategy', icon: Bot },
   ];
