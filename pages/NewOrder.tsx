@@ -396,7 +396,7 @@ Proceed?
                     <span className="text-slate-500 text-sm uppercase font-semibold">Base Cost (Provider)</span>
                     <p className="text-xl font-bold text-slate-600 mt-1">{formatINR(providerCost)}</p>
                     <span className={`text-xs font-bold block mt-1 ${charge < providerCost ? 'text-red-500' : 'text-green-600'}`}>
-                      {charge < providerCost ? 'WARNING: LOSS DEAL' : `Margin: ${formatINR(charge - providerCost)}`}
+                      {charge < providerCost ? 'WARNING: LOSS DEAL' : `GST/Fees: ${formatINR(charge - providerCost)}`}
                     </span>
                  </div>
               )}
@@ -563,7 +563,7 @@ Proceed?
               </div>
            </div>
             <p className="text-xs text-brand-700 mt-3 italic">
-                * The difference is collected as GST/Margin.
+                * The difference is collected as GST & Service Taxes.
             </p>
         </div>
       </div>

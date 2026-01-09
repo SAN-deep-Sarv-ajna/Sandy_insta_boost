@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag } from 'lucide-react';
+import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag, Eye, EyeOff, Lock, QrCode } from 'lucide-react';
 import { getStoredSettings, saveSettings, getBalance, fetchLiveRate } from '../services/smmProvider';
+import { useNavigate } from 'react-router-dom';
 
 const Settings: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
@@ -9,11 +10,15 @@ const Settings: React.FC = () => {
   const [exchangeRate, setExchangeRate] = useState(1);
   const [autoExchangeRate, setAutoExchangeRate] = useState(false);
   const [globalDiscount, setGlobalDiscount] = useState(0);
+  const [hideSettings, setHideSettings] = useState(false);
+  const [upiId, setUpiId] = useState('');
   
   const [status, setStatus] = useState<{type: 'success' | 'error' | null, msg: string}>({ type: null, msg: '' });
   const [balanceData, setBalanceData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRateLoading, setIsRateLoading] = useState(false);
+  
+  const navigate = useNavigate();
 
   useEffect(() => {
     const settings = getStoredSettings();
@@ -23,6 +28,8 @@ const Settings: React.FC = () => {
     setExchangeRate(settings.exchangeRate);
     setAutoExchangeRate(settings.autoExchangeRate);
     setGlobalDiscount(settings.globalDiscount);
+    setHideSettings(settings.hideSettings);
+    setUpiId(settings.upiId);
     if(settings.apiKey) {
       checkConnection();
     }
@@ -62,12 +69,23 @@ const Settings: React.FC = () => {
       return;
     }
     
-    saveSettings(apiKey, proxyUrl, useProxy, exchangeRate, autoExchangeRate, globalDiscount);
-    setStatus({ type: 'success', msg: 'Settings saved successfully!' });
-    checkConnection();
+    // Save settings (this now dispatches an event to update Layout)
+    saveSettings(apiKey, proxyUrl, useProxy, exchangeRate, autoExchangeRate, globalDiscount, hideSettings, upiId);
     
-    // Clear success message after 3 seconds
-    setTimeout(() => setStatus({ type: null, msg: '' }), 3000);
+    setStatus({ type: 'success', msg: 'Settings saved successfully!' });
+    
+    // If user hid the settings, we should probably navigate them to the dashboard/catalog 
+    // after a moment so they don't feel "stuck" on a hidden page.
+    if (hideSettings) {
+        setTimeout(() => {
+            navigate('/');
+        }, 1500);
+    } else {
+        // Just clear success message after a while
+        setTimeout(() => {
+             setStatus({ type: null, msg: '' });
+        }, 2000);
+    }
   };
 
   return (
@@ -107,6 +125,29 @@ const Settings: React.FC = () => {
           </div>
 
           <div className="border-t border-slate-100 my-4"></div>
+
+          {/* PAYMENT UPI CONFIG */}
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+             <label className="block text-sm font-medium text-blue-900 mb-2 flex items-center gap-2">
+                <QrCode size={16} /> Payment Setup (UPI QR)
+             </label>
+             <div className="space-y-2">
+                 <input 
+                  type="text" 
+                  value={upiId}
+                  onChange={(e) => setUpiId(e.target.value)}
+                  placeholder="e.g. sandeep@okaxis"
+                  className="w-full p-2 border border-blue-200 rounded text-blue-900 placeholder-blue-300 outline-none focus:ring-2 focus:ring-blue-400 font-mono"
+                />
+                <div className="text-xs text-blue-700 leading-relaxed">
+                   Enter your <strong>UPI ID</strong> (VPA). The app will automatically generate a QR code and show a "Payment Info" button in the sidebar for your clients to scan and pay.
+                   <br/>
+                   <span className="opacity-75">Leave empty to disable the payment button.</span>
+                </div>
+             </div>
+          </div>
+
+          <div className="border-t border-slate-100 my-4"></div>
           
           {/* STOREWIDE DISCOUNT */}
           <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
@@ -127,6 +168,30 @@ const Settings: React.FC = () => {
                    <span className="opacity-75">Useful for "Seasonal Sales" or when you want to lower your margins globally. Set to 0 to disable.</span>
                 </div>
              </div>
+          </div>
+
+          <div className="border-t border-slate-100 my-4"></div>
+
+          {/* HIDE SETTINGS TOGGLE */}
+          <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                    {hideSettings ? <EyeOff size={16} className="text-slate-500"/> : <Eye size={16} className="text-slate-500"/>}
+                    Hide 'Settings' from Sidebar (Client Mode)
+                </label>
+                <button 
+                    onClick={() => setHideSettings(!hideSettings)}
+                    className={`w-10 h-5 rounded-full relative transition-colors ${hideSettings ? 'bg-slate-800' : 'bg-slate-300'}`}
+                >
+                    <span className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${hideSettings ? 'left-6' : 'left-1'}`} />
+                </button>
+            </div>
+            <div className="text-xs text-slate-500">
+                <p>If enabled, the "API Settings" link will vanish from the menu after saving.</p>
+                <p className="mt-1 font-bold text-slate-600 flex items-center gap-1">
+                    <Lock size={12}/> To access this page again, you must type <code className="bg-slate-200 px-1 rounded">/settings</code> in your browser URL.
+                </p>
+            </div>
           </div>
 
           <div className="border-t border-slate-100 my-4"></div>

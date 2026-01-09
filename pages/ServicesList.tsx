@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MOCK_SERVICES } from '../constants';
-import { Search, RefreshCw, AlertCircle, Settings, ShoppingCart } from 'lucide-react';
+import { Search, RefreshCw, AlertCircle, Settings, ShoppingCart, Info, FileText } from 'lucide-react';
 import { fetchProviderServices, getStoredSettings } from '../services/smmProvider';
 import { Service } from '../types';
 import { Link } from 'react-router-dom';
@@ -110,10 +110,8 @@ const ServicesList: React.FC = () => {
             <thead className="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
               <tr>
                 <th className="px-6 py-4">ID</th>
-                <th className="px-6 py-4">Platform</th>
-                <th className="px-6 py-4">Service Name</th>
-                <th className="px-6 py-4 text-right">Client Price</th>
-                {isLive && <th className="px-6 py-4 text-right bg-slate-100">Base Cost</th>}
+                <th className="px-6 py-4">Service</th>
+                <th className="px-6 py-4 text-right">Price</th>
                 {isLive && <th className="px-6 py-4 text-right text-green-600">GST</th>}
                 <th className="px-6 py-4 text-center">Min / Max</th>
                 <th className="px-6 py-4 text-center">Action</th>
@@ -122,42 +120,50 @@ const ServicesList: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredServices.map((service) => (
                 <tr key={service.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 font-mono text-slate-500">{service.id}</td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border
-                      ${service.platform === 'Instagram' ? 'bg-pink-50 text-pink-700 border-pink-200' : 
-                        service.platform === 'Facebook' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                        'bg-slate-100 text-slate-700 border-slate-200'}
-                    `}>
-                      {service.platform}
-                    </span>
+                  <td className="px-6 py-4 font-mono text-slate-500 align-top">{service.id}</td>
+                  
+                  {/* SERVICE & DESCRIPTION */}
+                  <td className="px-6 py-4 max-w-lg align-top">
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-start gap-2">
+                             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] uppercase font-bold border tracking-wide mt-0.5
+                                ${service.platform === 'Instagram' ? 'bg-pink-50 text-pink-700 border-pink-200' : 
+                                service.platform === 'Facebook' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                'bg-slate-100 text-slate-700 border-slate-200'}
+                             `}>
+                                {service.platform}
+                             </span>
+                             <span className="font-bold text-slate-900 text-sm">{service.name}</span>
+                        </div>
+                        {/* DESCRIPTION BLOCK */}
+                        {service.description && (
+                            <div className="flex gap-2 mt-1 bg-slate-50 p-2 rounded border border-slate-100">
+                                <Info size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                                <p className="text-xs text-slate-600 leading-relaxed">
+                                    {service.description}
+                                </p>
+                            </div>
+                        )}
+                    </div>
                   </td>
-                  <td className="px-6 py-4 font-medium max-w-md">
-                    {service.name}
-                    {service.category && <div className="text-xs text-slate-400 font-normal mt-0.5">{service.category}</div>}
-                  </td>
-                  <td className="px-6 py-4 font-bold text-slate-900 text-right">{formatINR(service.rate)}</td>
+
+                  <td className="px-6 py-4 font-bold text-slate-900 text-right align-top">{formatINR(service.rate)}</td>
                   
                   {isLive && (
-                    <>
-                      <td className="px-6 py-4 text-slate-500 text-right bg-slate-50 font-mono text-xs">
-                        {service.originalRate ? formatINR(service.originalRate) : '-'}
-                      </td>
-                      <td className="px-6 py-4 text-green-600 font-bold text-right text-xs">
+                    <td className="px-6 py-4 text-green-600 font-bold text-right text-xs align-top">
                          {service.originalRate ? formatINR(service.rate - service.originalRate) : '-'}
-                      </td>
-                    </>
+                    </td>
                   )}
                   
-                  <td className="px-6 py-4 text-xs text-slate-500 text-center">
+                  <td className="px-6 py-4 text-xs text-slate-500 text-center align-top">
                     {service.min} / {service.max}
                   </td>
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-6 py-4 text-center align-top">
                     <Link 
                       to={`/calculator?serviceId=${service.id}`}
                       className="inline-flex items-center gap-1 bg-brand-600 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-brand-700 transition-colors shadow-sm"
                     >
-                      <ShoppingCart size={14} /> Buy Now
+                      <ShoppingCart size={14} /> Buy
                     </Link>
                   </td>
                 </tr>

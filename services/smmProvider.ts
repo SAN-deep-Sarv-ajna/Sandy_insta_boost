@@ -12,33 +12,60 @@ const STORAGE_KEY_USE_PROXY = 'smm_use_proxy';
 const STORAGE_KEY_EXCHANGE_RATE = 'smm_exchange_rate';
 const STORAGE_KEY_AUTO_RATE = 'smm_auto_rate';
 const STORAGE_KEY_GLOBAL_DISCOUNT = 'smm_global_discount';
+const STORAGE_KEY_HIDE_SETTINGS = 'smm_hide_settings';
+const STORAGE_KEY_UPI_ID = 'smm_upi_id';
+
+// Event constant for real-time updates
+export const SETTINGS_UPDATED_EVENT = 'smm_settings_updated';
 
 export const getStoredSettings = () => {
-  // Default useProxy to TRUE because we now have a reliable internal proxy
-  const useProxy = localStorage.getItem(STORAGE_KEY_USE_PROXY) !== 'false'; 
+  // CRITICAL FIX: Default useProxy to FALSE (Direct Connection).
+  // This ensures the app works immediately on static hosting (GitHub Pages, etc.)
+  // Users can opt-in to Proxy if they need it, but Direct + Extension is safest default.
+  const storedProxy = localStorage.getItem(STORAGE_KEY_USE_PROXY);
+  const useProxy = storedProxy === 'true'; // Defaults to false if null or anything else
+
   const exchangeRate = parseFloat(localStorage.getItem(STORAGE_KEY_EXCHANGE_RATE) || '1');
   const autoExchangeRate = localStorage.getItem(STORAGE_KEY_AUTO_RATE) === 'true';
   const globalDiscount = parseFloat(localStorage.getItem(STORAGE_KEY_GLOBAL_DISCOUNT) || '0');
+  const hideSettings = localStorage.getItem(STORAGE_KEY_HIDE_SETTINGS) === 'true';
+  const upiId = localStorage.getItem(STORAGE_KEY_UPI_ID) || '';
 
   return {
     apiKey: localStorage.getItem(STORAGE_KEY_API) || '',
-    // Default to internal proxy if not set
+    // Default to internal proxy if not set, but only used if useProxy is true
     proxyUrl: localStorage.getItem(STORAGE_KEY_PROXY) || INTERNAL_PROXY_URL,
     useProxy: useProxy,
     apiUrl: DEFAULT_API_URL,
     exchangeRate: isNaN(exchangeRate) || exchangeRate <= 0 ? 1 : exchangeRate,
     autoExchangeRate,
-    globalDiscount: isNaN(globalDiscount) ? 0 : globalDiscount
+    globalDiscount: isNaN(globalDiscount) ? 0 : globalDiscount,
+    hideSettings,
+    upiId
   };
 };
 
-export const saveSettings = (apiKey: string, proxyUrl: string, useProxy: boolean, exchangeRate: number, autoExchangeRate: boolean, globalDiscount: number) => {
+export const saveSettings = (
+    apiKey: string, 
+    proxyUrl: string, 
+    useProxy: boolean, 
+    exchangeRate: number, 
+    autoExchangeRate: boolean, 
+    globalDiscount: number,
+    hideSettings: boolean,
+    upiId: string
+) => {
   localStorage.setItem(STORAGE_KEY_API, apiKey.trim());
   localStorage.setItem(STORAGE_KEY_PROXY, proxyUrl.trim());
   localStorage.setItem(STORAGE_KEY_USE_PROXY, String(useProxy));
   localStorage.setItem(STORAGE_KEY_EXCHANGE_RATE, String(exchangeRate));
   localStorage.setItem(STORAGE_KEY_AUTO_RATE, String(autoExchangeRate));
   localStorage.setItem(STORAGE_KEY_GLOBAL_DISCOUNT, String(globalDiscount));
+  localStorage.setItem(STORAGE_KEY_HIDE_SETTINGS, String(hideSettings));
+  localStorage.setItem(STORAGE_KEY_UPI_ID, upiId.trim());
+
+  // Dispatch custom event to notify components (like Sidebar) to re-render
+  window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
 };
 
 // Helper to determine platform from service name/category
@@ -74,6 +101,8 @@ export interface ProviderService {
   dripfeed: boolean;
   refill: boolean;
   cancel: boolean;
+  description?: string; // Standard field
+  desc?: string; // Alternative field
 }
 
 const buildTargetUrl = (apiUrl: string, proxyUrl: string, useProxy: boolean) => {
@@ -109,7 +138,7 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
   const { apiKey, proxyUrl, useProxy, apiUrl, exchangeRate, autoExchangeRate, globalDiscount } = getStoredSettings();
 
   if (!apiKey) {
-    throw new Error("API Key is missing. Please go to Settings to configure your SMMDevil API Key.");
+    throw new Error("API Key is missing. Please go to Settings to configure your Sandyinsta API Key.");
   }
 
   // Handle Automatic Rate Update
@@ -146,9 +175,9 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
 
     const text = await response.text();
     
-    // Handle cases where proxy returns HTML error
+    // Handle cases where proxy returns HTML error (common in static hosting 404s)
     if (text.trim().startsWith('<') || text.trim().toLowerCase().includes('cloudflare')) {
-        throw new Error("Proxy Error: The request was blocked. Try switching connection modes in Settings.");
+        throw new Error("Connection Error: The Proxy connection failed. Go to Settings and ensure 'Connection Mode' is set to 'Direct Connection' and you have the CORS Extension installed.");
     }
 
     let data;
@@ -191,11 +220,12 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
         originalRate: parseFloat(costInLocalCurrency.toFixed(5)),
         min: parseInt(item.min),
         max: parseInt(item.max),
-        description: item.category
+        // Robust description check: looks for 'description', 'desc', then category fallback
+        description: item.description || item.desc || item.category || 'Premium SMM Service'
       };
     });
   } catch (error) {
-    console.error("Failed to fetch from SMMDevil:", error);
+    console.error("Failed to fetch from Sandyinsta:", error);
     throw error;
   }
 };
