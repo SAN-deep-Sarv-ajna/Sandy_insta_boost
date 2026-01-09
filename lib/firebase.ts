@@ -1,4 +1,4 @@
-import * as firebaseApp from 'firebase/app';
+import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
@@ -6,7 +6,8 @@ import { getFirestore } from 'firebase/firestore';
 // ideally these should be in .env files (VITE_FIREBASE_API_KEY, etc.)
 
 // Cast import.meta to any to resolve TypeScript error regarding env property
-const env = (import.meta as any).env;
+// Added fallback || {} to prevent crash if env is undefined
+const env = (import.meta as any).env || {};
 
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,
@@ -25,7 +26,7 @@ if (!firebaseConfig.apiKey) {
 }
 
 // Initialize Firebase only if config is present to prevent crashes during setup
-const app = firebaseConfig.apiKey ? firebaseApp.initializeApp(firebaseConfig) : undefined;
+const app = firebaseConfig.apiKey ? initializeApp(firebaseConfig) : undefined;
 
 export const auth = app ? getAuth(app) : undefined;
 export const db = app ? getFirestore(app) : undefined;
