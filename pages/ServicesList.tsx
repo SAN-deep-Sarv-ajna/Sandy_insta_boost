@@ -31,7 +31,7 @@ const ServicesList: React.FC = () => {
       setServices(liveServices);
       setIsLive(true);
     } catch (err: any) {
-      setError(err.message || "Failed to sync with SMMDevil.");
+      setError(err.message || "Failed to sync with Sandyinsta.");
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ const ServicesList: React.FC = () => {
             {isLive && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full border border-green-200">Live API Data</span>}
           </h2>
           <p className="text-slate-500 text-sm mt-1">
-            {isLive ? `Showing ${services.length} real-time services from SMMDevil.` : 'Showing default catalog (Mock Data).'}
+            {isLive ? `Showing ${services.length} real-time services from Sandyinsta.` : 'Showing default catalog (Mock Data).'}
           </p>
         </div>
         

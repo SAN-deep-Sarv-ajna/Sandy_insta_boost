@@ -9,24 +9,36 @@ const INTERNAL_PROXY_URL = '/api/proxy';
 const STORAGE_KEY_API = 'smm_api_key';
 const STORAGE_KEY_PROXY = 'smm_proxy_url';
 const STORAGE_KEY_USE_PROXY = 'smm_use_proxy';
+const STORAGE_KEY_EXCHANGE_RATE = 'smm_exchange_rate';
+const STORAGE_KEY_AUTO_RATE = 'smm_auto_rate';
+const STORAGE_KEY_GLOBAL_DISCOUNT = 'smm_global_discount';
 
 export const getStoredSettings = () => {
   // Default useProxy to TRUE because we now have a reliable internal proxy
   const useProxy = localStorage.getItem(STORAGE_KEY_USE_PROXY) !== 'false'; 
-  
+  const exchangeRate = parseFloat(localStorage.getItem(STORAGE_KEY_EXCHANGE_RATE) || '1');
+  const autoExchangeRate = localStorage.getItem(STORAGE_KEY_AUTO_RATE) === 'true';
+  const globalDiscount = parseFloat(localStorage.getItem(STORAGE_KEY_GLOBAL_DISCOUNT) || '0');
+
   return {
     apiKey: localStorage.getItem(STORAGE_KEY_API) || '',
     // Default to internal proxy if not set
     proxyUrl: localStorage.getItem(STORAGE_KEY_PROXY) || INTERNAL_PROXY_URL,
     useProxy: useProxy,
-    apiUrl: DEFAULT_API_URL
+    apiUrl: DEFAULT_API_URL,
+    exchangeRate: isNaN(exchangeRate) || exchangeRate <= 0 ? 1 : exchangeRate,
+    autoExchangeRate,
+    globalDiscount: isNaN(globalDiscount) ? 0 : globalDiscount
   };
 };
 
-export const saveSettings = (apiKey: string, proxyUrl: string, useProxy: boolean) => {
+export const saveSettings = (apiKey: string, proxyUrl: string, useProxy: boolean, exchangeRate: number, autoExchangeRate: boolean, globalDiscount: number) => {
   localStorage.setItem(STORAGE_KEY_API, apiKey.trim());
   localStorage.setItem(STORAGE_KEY_PROXY, proxyUrl.trim());
   localStorage.setItem(STORAGE_KEY_USE_PROXY, String(useProxy));
+  localStorage.setItem(STORAGE_KEY_EXCHANGE_RATE, String(exchangeRate));
+  localStorage.setItem(STORAGE_KEY_AUTO_RATE, String(autoExchangeRate));
+  localStorage.setItem(STORAGE_KEY_GLOBAL_DISCOUNT, String(globalDiscount));
 };
 
 // Helper to determine platform from service name/category
@@ -78,11 +90,38 @@ const buildTargetUrl = (apiUrl: string, proxyUrl: string, useProxy: boolean) => 
   return apiUrl;
 };
 
+// FETCH LIVE RATE (USD -> INR)
+export const fetchLiveRate = async (): Promise<number | null> => {
+    try {
+        const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        if (!res.ok) throw new Error("Failed to fetch rates");
+        const data = await res.json();
+        const inr = data.rates.INR;
+        if (inr) return inr;
+        return null;
+    } catch (e) {
+        console.error("Rate fetch failed", e);
+        return null;
+    }
+};
+
 export const fetchProviderServices = async (): Promise<Service[]> => {
-  const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
+  const { apiKey, proxyUrl, useProxy, apiUrl, exchangeRate, autoExchangeRate, globalDiscount } = getStoredSettings();
 
   if (!apiKey) {
     throw new Error("API Key is missing. Please go to Settings to configure your SMMDevil API Key.");
+  }
+
+  // Handle Automatic Rate Update
+  let effectiveExchangeRate = exchangeRate;
+  if (autoExchangeRate) {
+      const liveRate = await fetchLiveRate();
+      if (liveRate) {
+          effectiveExchangeRate = liveRate;
+          // Update storage seamlessly so other components know
+          localStorage.setItem(STORAGE_KEY_EXCHANGE_RATE, String(liveRate));
+          console.log(`Auto-updated Exchange Rate to: ${liveRate}`);
+      }
   }
 
   try {
@@ -129,12 +168,17 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
     }
 
     // Transform Provider Data
-    // MARGIN: 50% (Selling Price = Provider Cost * 1.5)
+    // FORMULA: (Raw Rate * Exchange Rate) * 1.5 Margin
     return data.map((item: ProviderService) => {
-      const originalRate = parseFloat(item.rate);
-      const cost = isNaN(originalRate) ? 0 : originalRate;
+      const rawRate = parseFloat(item.rate); // Usually in USD
+      const costInLocalCurrency = (isNaN(rawRate) ? 0 : rawRate) * effectiveExchangeRate;
       
-      const sellingRate = cost * 1.5; // 50% Margin added here
+      const standardSellingRate = costInLocalCurrency * 1.5; // 50% Margin
+      
+      // Apply Global Discount if set
+      const finalSellingRate = globalDiscount > 0 
+         ? standardSellingRate * (1 - globalDiscount / 100)
+         : standardSellingRate;
 
       return {
         id: parseInt(item.service),
@@ -142,9 +186,9 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
         type: getType(item.name),
         name: item.name,
         category: item.category,
-        // Use 5 decimal places to avoid losing precision on cheap services (e.g. 0.0001)
-        rate: parseFloat(sellingRate.toFixed(5)),
-        originalRate: cost,
+        // Use 5 decimal places to avoid losing precision
+        rate: parseFloat(finalSellingRate.toFixed(5)),
+        originalRate: parseFloat(costInLocalCurrency.toFixed(5)),
         min: parseInt(item.min),
         max: parseInt(item.max),
         description: item.category

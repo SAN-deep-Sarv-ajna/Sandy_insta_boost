@@ -87,8 +87,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
 
         <div className="absolute bottom-0 w-full p-4 border-t border-slate-800">
-          <div className="text-center text-xs text-slate-500">
-            Reseller Pricing Panel v1.0
+          <div className="text-center text-xs text-slate-500 font-medium">
+            Made with ❤️ by Sandeep (Chakia)
           </div>
         </div>
       </aside>

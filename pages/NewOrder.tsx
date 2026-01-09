@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MOCK_SERVICES } from '../constants';
 import { Platform, Service } from '../types';
-import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle, ShieldCheck } from 'lucide-react';
+import { TrendingUp, Info, Copy, Check, RefreshCw, Server, DollarSign, ExternalLink, Settings, AlertTriangle, HelpCircle, XCircle, ShieldCheck, Tag } from 'lucide-react';
 import { fetchProviderServices, placeProviderOrder, getStoredSettings } from '../services/smmProvider';
 import { Link, useSearchParams } from 'react-router-dom';
 
@@ -11,17 +11,22 @@ const NewOrder: React.FC = () => {
   const [isLive, setIsLive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState(1);
   const [useProxy, setUseProxy] = useState(true);
+  const [globalDiscount, setGlobalDiscount] = useState(0);
 
   // Form State
   const [selectedPlatform, setSelectedPlatform] = useState<string>(Platform.INSTAGRAM);
   const [selectedServiceId, setSelectedServiceId] = useState<number>(0);
   const [link, setLink] = useState('');
   const [quantity, setQuantity] = useState<number>(0);
+  const [manualDiscount, setManualDiscount] = useState<number>(0);
   
   // UI State
-  const [charge, setCharge] = useState(0); // Client Charge (with margin)
-  const [providerCost, setProviderCost] = useState(0); // Real cost
+  const [charge, setCharge] = useState(0); // Client Charge (Final)
+  const [baseCharge, setBaseCharge] = useState(0); // Charge before manual discount
+  const [providerCost, setProviderCost] = useState(0); // Standard cost
+  
   const [copied, setCopied] = useState(false);
   const [orderResult, setOrderResult] = useState<{success: boolean, message: string} | null>(null);
   const [placingOrder, setPlacingOrder] = useState(false);
@@ -31,13 +36,19 @@ const NewOrder: React.FC = () => {
 
   // Check API Key on mount
   useEffect(() => {
-    const settings = getStoredSettings();
-    setHasApiKey(!!settings.apiKey);
-    setUseProxy(settings.useProxy);
-    if(settings.apiKey) {
+    refreshSettings();
+    if(getStoredSettings().apiKey) {
       loadApiServices();
     }
   }, []);
+
+  const refreshSettings = () => {
+      const settings = getStoredSettings();
+      setHasApiKey(!!settings.apiKey);
+      setUseProxy(settings.useProxy);
+      setExchangeRate(settings.exchangeRate);
+      setGlobalDiscount(settings.globalDiscount || 0);
+  }
 
   // Load API Services Handler
   const loadApiServices = async () => {
@@ -45,6 +56,9 @@ const NewOrder: React.FC = () => {
     setOrderResult(null); // Clear previous errors on reload
     try {
       const data = await fetchProviderServices();
+      // After fetch, rate might have auto-updated in storage, so refresh our local state for the UI
+      refreshSettings();
+      
       if(data && data.length > 0) {
         setAllServices(data);
         setIsLive(true);
@@ -104,17 +118,26 @@ const NewOrder: React.FC = () => {
   // Calculate charge
   useEffect(() => {
     if (currentService && quantity) {
-      const price = (quantity / 1000) * currentService.rate;
-      setCharge(price);
+      const rawPrice = (quantity / 1000) * currentService.rate;
+      setBaseCharge(rawPrice);
+      
+      // Apply Manual Discount
+      const finalPrice = manualDiscount > 0 
+         ? rawPrice * (1 - manualDiscount / 100)
+         : rawPrice;
+      
+      setCharge(finalPrice);
 
       if (currentService.originalRate) {
-        setProviderCost((quantity / 1000) * currentService.originalRate);
+        const standardCost = (quantity / 1000) * currentService.originalRate;
+        setProviderCost(standardCost);
       }
     } else {
       setCharge(0);
+      setBaseCharge(0);
       setProviderCost(0);
     }
-  }, [quantity, currentService]);
+  }, [quantity, currentService, manualDiscount]);
 
   const handleCopy = () => {
     if (!currentService || !quantity) return;
@@ -123,7 +146,7 @@ const NewOrder: React.FC = () => {
 SERVICE: ${currentService.name}
 LINK: ${link || 'N/A'}
 QUANTITY: ${quantity}
-TOTAL PRICE: ${formatINR(charge)} (Incl. Taxes)
+PRICE: ${formatINR(charge)} ${manualDiscount > 0 ? `(Inc. ${manualDiscount}% Off)` : ''}
     `.trim();
 
     navigator.clipboard.writeText(text);
@@ -148,7 +171,7 @@ TOTAL PRICE: ${formatINR(charge)} (Incl. Taxes)
 
     // 2. Environment Check
     if (!hasApiKey) {
-        alert("Action Required: Please go to 'API Settings' and enter your SMMDevil API Key first.");
+        alert("Action Required: Please go to 'API Settings' and enter your Sandyinsta API Key first.");
         return;
     }
 
@@ -165,8 +188,8 @@ CONFIRM ORDER?
 
 Service: ${currentService.name}
 Quantity: ${quantity}
+${manualDiscount > 0 ? `Discount Applied: ${manualDiscount}%` : ''}
 
---- COST TO YOU: ${formatINR(providerCost)} ---
 --- CLIENT PAYS: ${formatINR(charge)} ---
 
 Proceed?
@@ -187,6 +210,7 @@ Proceed?
         });
         setQuantity(0);
         setLink('');
+        setManualDiscount(0); // Reset discount
       } else if (result.error) {
          setOrderResult({ 
           success: false, 
@@ -226,7 +250,7 @@ Proceed?
           <div className="flex items-center gap-3">
              <Server size={20} className="text-brand-400" />
              <div>
-               <p className="font-bold text-sm">Data Source: {isLive ? 'SMMDevil API (Live)' : 'Mock Data (Simulation)'}</p>
+               <p className="font-bold text-sm">Data Source: {isLive ? 'Sandyinsta API (Live)' : 'Mock Data (Simulation)'}</p>
                {isLive && <p className="text-xs text-brand-300">Connected & Ready to Order</p>}
                {!isLive && hasApiKey && <p className="text-xs text-red-300">Connection Failed - Check Settings</p>}
              </div>
@@ -280,17 +304,17 @@ Proceed?
               </div>
             </div>
 
-            {/* Service Selector */}
+            {/* Service Selector (VISIBILITY IMPROVED) */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Service</label>
               <select
                 value={selectedServiceId}
                 onChange={(e) => setSelectedServiceId(Number(e.target.value))}
-                className="w-full rounded-lg border-slate-300 border p-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-shadow"
+                className="w-full rounded-lg border-slate-300 border-2 p-3 text-slate-900 font-bold bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-shadow text-base shadow-sm"
               >
                 {availableServices.length === 0 && <option value="0">No services found for {selectedPlatform}</option>}
                 {availableServices.map((service) => (
-                  <option key={service.id} value={service.id}>
+                  <option key={service.id} value={service.id} className="text-slate-900 font-semibold py-2">
                     {service.id} - {service.name} - {formatINR(service.rate)}
                   </option>
                 ))}
@@ -323,20 +347,56 @@ Proceed?
               />
             </div>
 
+            {/* Manual Discount Input (New) */}
+            <div>
+                <label className="block text-sm font-medium text-purple-700 mb-2 flex items-center gap-1">
+                    <Tag size={14} /> Manual Discount (%) <span className="text-slate-400 font-normal ml-2 text-xs">- Optional, use for negotiation</span>
+                </label>
+                <div className="relative">
+                    <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={manualDiscount || ''}
+                        onChange={(e) => setManualDiscount(parseFloat(e.target.value))}
+                        placeholder="0"
+                        className="w-full rounded-lg border-purple-200 bg-purple-50 border p-3 pl-4 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-purple-900 font-semibold"
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-400 font-bold">%</div>
+                </div>
+            </div>
+
             {/* Quote & Profit Display */}
             <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <span className="text-slate-500 text-sm uppercase font-semibold">Client Price (Total)</span>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{formatINR(charge)}</p>
-                <p className="text-xs text-slate-400 mt-1">Includes 50% GST/Margin</p>
+                <div className="mt-1">
+                    {manualDiscount > 0 ? (
+                        <>
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="text-lg text-slate-400 line-through">{formatINR(baseCharge)}</span>
+                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">
+                                    {manualDiscount}% OFF
+                                </span>
+                            </div>
+                            <p className="text-3xl font-bold text-purple-700">{formatINR(charge)}</p>
+                        </>
+                    ) : (
+                        <p className="text-3xl font-bold text-slate-900">{formatINR(charge)}</p>
+                    )}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                    {globalDiscount > 0 && <span className="text-purple-600 font-bold mr-1">Global Sale Active!</span>}
+                    Includes GST/Margin
+                </p>
               </div>
               
               {isLive && currentService?.originalRate && (
                  <div>
                     <span className="text-slate-500 text-sm uppercase font-semibold">Base Cost (Provider)</span>
                     <p className="text-xl font-bold text-slate-600 mt-1">{formatINR(providerCost)}</p>
-                    <span className="text-xs text-green-600 font-bold block mt-1">
-                      GST (Margin): {formatINR(charge - providerCost)}
+                    <span className={`text-xs font-bold block mt-1 ${charge < providerCost ? 'text-red-500' : 'text-green-600'}`}>
+                      {charge < providerCost ? 'WARNING: LOSS DEAL' : `Margin: ${formatINR(charge - providerCost)}`}
                     </span>
                  </div>
               )}
@@ -434,7 +494,7 @@ Proceed?
               </div>
               <div className="grid grid-cols-2 gap-4">
                  <div>
-                  <span className="text-slate-500 block mb-1">Client Rate</span>
+                  <span className="text-slate-500 block mb-1">Client Rate (Unit)</span>
                   <span className="font-bold text-brand-600">{formatINR(currentService.rate)}</span>
                 </div>
                  <div>
@@ -445,13 +505,18 @@ Proceed?
               {currentService.originalRate && (
                  <div className="bg-slate-50 p-3 rounded border border-slate-100">
                     <div className="flex justify-between items-center mb-1">
-                        <span className="text-slate-500 text-xs">Base Cost</span>
+                        <span className="text-slate-500 text-xs">Base Cost (Std)</span>
                         <span className="font-mono text-slate-600">{formatINR(currentService.originalRate)}</span>
                     </div>
                     <div className="flex justify-between items-center font-bold text-green-600">
                         <span className="text-xs uppercase">GST (50%)</span>
                         <span>{formatINR(currentService.rate - currentService.originalRate)}</span>
                     </div>
+                    {globalDiscount > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-purple-600 font-bold text-center">
+                            Includes {globalDiscount}% Global Sale Discount
+                        </div>
+                    )}
                  </div>
               )}
               <div>
@@ -472,22 +537,34 @@ Proceed?
               <ShieldCheck size={16} /> Business Safety Check
            </h4>
            <div className="space-y-3 text-sm text-brand-900">
+               {exchangeRate !== 1 && (
+                  <div className="flex justify-between border-b border-brand-200 pb-2 bg-yellow-50 p-1 rounded">
+                      <span className="text-xs">Currency Conversion:</span>
+                      <span className="font-mono text-xs font-bold">Rate x {exchangeRate}</span>
+                  </div>
+               )}
               <div className="flex justify-between border-b border-brand-200 pb-2">
-                  <span>Provider Rate:</span>
+                  <span>Provider Rate (Std):</span>
                   <span className="font-mono">{currentService?.originalRate ? formatINR(currentService.originalRate) : '0.00'}</span>
               </div>
               <div className="flex justify-between border-b border-brand-200 pb-2">
-                  <span>Multiplier:</span>
-                  <span className="font-bold">x 1.5 (+50%)</span>
+                  <span>Selling Multiplier:</span>
+                  <span className="font-bold">x 1.5 (Standard)</span>
               </div>
+              {globalDiscount > 0 && (
+                  <div className="flex justify-between border-b border-brand-200 pb-2 text-purple-700">
+                    <span>Global Discount:</span>
+                    <span className="font-bold">-{globalDiscount}%</span>
+                </div>
+              )}
               <div className="flex justify-between pt-1">
-                  <span className="font-bold">Your Price:</span>
+                  <span className="font-bold">Your Unit Price:</span>
                   <span className="font-bold">{currentService?.rate ? formatINR(currentService.rate) : '0.00'}</span>
               </div>
            </div>
-           <p className="text-xs text-brand-700 mt-3 italic">
-              * The difference is collected as GST/Margin.
-           </p>
+            <p className="text-xs text-brand-700 mt-3 italic">
+                * The difference is collected as GST/Margin.
+            </p>
         </div>
       </div>
     </div>
