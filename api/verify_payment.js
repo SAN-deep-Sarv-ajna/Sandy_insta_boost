@@ -73,15 +73,25 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: 'This UTR has already been used.' });
     }
 
-    // 3. VERIFY AMOUNT
+    // 3. VERIFY AMOUNT (AUTO-REJECT LOGIC)
     // We allow a small difference (float math) or exact match
     const dbAmount = depositData.amount;
     const reqAmount = parseFloat(txData.amount);
 
     if (Math.abs(dbAmount - reqAmount) > 2.0) {
-        return res.status(400).json({ 
+        // 🔥 AUTO-REJECT: Amount mismatch detected
+        // We update the DB immediately so it leaves the "Pending" queue.
+        await txDoc.ref.update({
+            status: 'REJECTED',
+            reason: `Auto-Reject: Amount Mismatch. Bank: ${dbAmount}, User Claimed: ${reqAmount}`,
+            rejectedAt: FieldValue.serverTimestamp(),
+            method: 'SYSTEM_AUTO_CHECK'
+        });
+
+        return res.status(200).json({ 
             success: false, 
-            message: `Amount mismatch! SMS says ₹${dbAmount}, you requested ₹${reqAmount}.` 
+            rejected: true, // Flag for frontend
+            message: `❌ Mismatch! We received ₹${dbAmount}, but you entered ₹${reqAmount}. Request Rejected. Please create a new request with the correct amount.` 
         });
     }
 

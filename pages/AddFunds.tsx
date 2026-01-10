@@ -66,10 +66,14 @@ const AddFunds: React.FC = () => {
           });
           
           const data = await response.json();
+          
           if (data.success) {
               alert("✅ Success: Funds have been added to your wallet!");
+          } else if (data.rejected) {
+              // Specific alert for Amount Mismatch Auto-Reject
+              alert(data.message);
           } else {
-              // Only alert if it's a manual click, otherwise just log
+              // Only alert info for manual checks (e.g. "SMS not received yet")
               if (txId !== 'AUTO') alert(`ℹ️ Status: ${data.message}`);
           }
       } catch (e) {
@@ -329,12 +333,20 @@ const AddFunds: React.FC = () => {
                                     </div>
                                     <div>
                                         <p className="font-bold text-slate-900 text-sm">
-                                            {tx.status === 'PENDING' ? 'Processing Funds...' : 'Funds Added'}
+                                            {tx.status === 'PENDING' ? 'Processing Funds...' : 
+                                             tx.status === 'REJECTED' ? 'Transaction Rejected' : 'Funds Added'}
                                         </p>
                                         <p className="text-[10px] text-slate-400 font-mono mt-0.5">UTR: {tx.utr}</p>
                                         <p className="text-[10px] text-slate-400 font-medium mt-0.5">
                                             {tx.createdAt?.toDate ? tx.createdAt.toDate().toLocaleString() : 'Just now'}
                                         </p>
+                                        
+                                        {/* REJECTION REASON */}
+                                        {tx.status === 'REJECTED' && tx.reason && (
+                                            <p className="text-[9px] text-rose-500 font-bold bg-rose-50 px-2 py-1 rounded mt-1 border border-rose-100">
+                                                {tx.reason}
+                                            </p>
+                                        )}
                                         
                                         {/* Informational text for Pending */}
                                         {tx.status === 'PENDING' && (
