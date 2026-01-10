@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
-import { Check, X, Loader2, ShieldAlert, DollarSign, AlertCircle } from 'lucide-react';
+import { Check, X, Loader2, ShieldAlert, DollarSign, AlertCircle, Calendar, TrendingUp, History } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const AdminTransactions: React.FC = () => {
@@ -9,14 +9,19 @@ const AdminTransactions: React.FC = () => {
   const [requests, setRequests] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'PENDING' | 'HISTORY'>('PENDING');
+  const [totalRevenue, setTotalRevenue] = useState(0);
 
   useEffect(() => {
     if (!isAdmin || !db) return;
 
-    // Filter by status only, sort client-side
+    // Filter based on active tab
+    // Note: We sort client-side to avoid needing complex Firestore indexes immediately
+    const targetStatus = activeTab === 'PENDING' ? 'PENDING' : 'COMPLETED';
+    
     const q = query(
       collection(db, 'transactions'),
-      where('status', '==', 'PENDING')
+      where('status', '==', targetStatus)
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
@@ -30,6 +35,13 @@ const AdminTransactions: React.FC = () => {
       });
 
       setRequests(data);
+      
+      // Calculate Total Revenue for History Tab
+      if (activeTab === 'HISTORY') {
+          const total = data.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+          setTotalRevenue(total);
+      }
+      
       setError(null);
     }, (err) => {
       console.error("Firestore Error:", err);
@@ -37,7 +49,7 @@ const AdminTransactions: React.FC = () => {
     });
 
     return () => unsub();
-  }, [isAdmin]);
+  }, [isAdmin, activeTab]);
 
   const handleApprove = async (tx: any) => {
     if (!window.confirm(`Approve ₹${tx.amount} for ${tx.userEmail}? Ensure you received the money.`)) return;
@@ -113,12 +125,25 @@ const AdminTransactions: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4">
-        <div className="flex items-center justify-between">
+        {/* HEADER & TABS */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                <ShieldAlert className="text-rose-500" /> Funds Approvals
+                <ShieldAlert className="text-brand-600" /> Funds Manager
             </h2>
-            <div className="bg-rose-100 text-rose-800 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide">
-                {requests.length} Pending
+            
+            <div className="bg-slate-100 p-1 rounded-xl flex font-bold text-xs uppercase tracking-wide">
+                <button 
+                    onClick={() => setActiveTab('PENDING')}
+                    className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${activeTab === 'PENDING' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                    <ShieldAlert size={14} /> Requests {activeTab === 'PENDING' && `(${requests.length})`}
+                </button>
+                <button 
+                    onClick={() => setActiveTab('HISTORY')}
+                    className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${activeTab === 'HISTORY' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                    <History size={14} /> Payment History
+                </button>
             </div>
         </div>
         
@@ -129,11 +154,26 @@ const AdminTransactions: React.FC = () => {
             </div>
         )}
 
+        {/* REVENUE SUMMARY (History Mode Only) */}
+        {activeTab === 'HISTORY' && (
+            <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 rounded-2xl p-6 text-white shadow-lg flex items-center justify-between">
+                <div>
+                    <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest mb-1">Total Verified Revenue</p>
+                    <p className="text-3xl font-black tracking-tight">₹{totalRevenue.toLocaleString('en-IN')}</p>
+                </div>
+                <div className="bg-white/20 p-3 rounded-xl">
+                    <TrendingUp size={24} className="text-white" />
+                </div>
+            </div>
+        )}
+
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
             {requests.length === 0 ? (
                 <div className="p-12 text-center text-slate-400">
                     <Check size={48} className="mx-auto mb-4 text-emerald-200" />
-                    <p className="font-bold">All caught up! No pending requests.</p>
+                    <p className="font-bold">
+                        {activeTab === 'PENDING' ? "No pending requests." : "No transaction history found."}
+                    </p>
                 </div>
             ) : (
                 <div className="divide-y divide-slate-100">
@@ -142,35 +182,59 @@ const AdminTransactions: React.FC = () => {
                             <div>
                                 <div className="flex items-center gap-3 mb-1">
                                     <span className="font-bold text-slate-900 text-lg">₹{tx.amount}</span>
-                                    <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-mono border border-slate-200">
-                                        UTR: {tx.utr}
-                                    </span>
+                                    {tx.utr && (
+                                        <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-mono border border-slate-200">
+                                            UTR: {tx.utr}
+                                        </span>
+                                    )}
+                                    {activeTab === 'HISTORY' && (
+                                        <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-200 uppercase tracking-wide">
+                                            {tx.method || 'VERIFIED'}
+                                        </span>
+                                    )}
                                 </div>
                                 <p className="text-sm text-slate-500 font-medium">
                                     User: <span className="text-slate-800">{tx.userEmail}</span>
                                 </p>
-                                <p className="text-xs text-slate-400 mt-1">
+                                <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                                    <Calendar size={10} />
                                     {tx.createdAt?.toDate ? tx.createdAt.toDate().toLocaleString() : 'Just now'}
                                 </p>
                             </div>
                             
-                            <div className="flex items-center gap-3">
-                                <button 
-                                    onClick={() => handleReject(tx)}
-                                    disabled={!!processingId}
-                                    className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all uppercase tracking-wide"
-                                >
-                                    Reject
-                                </button>
-                                <button 
-                                    onClick={() => handleApprove(tx)}
-                                    disabled={!!processingId}
-                                    className="px-6 py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center gap-2 uppercase tracking-wide"
-                                >
-                                    {processingId === tx.id ? <Loader2 className="animate-spin" size={16}/> : <Check size={16}/>}
-                                    Approve Funds
-                                </button>
-                            </div>
+                            {/* ACTION BUTTONS (Only for Pending) */}
+                            {activeTab === 'PENDING' && (
+                                <div className="flex items-center gap-3">
+                                    <button 
+                                        onClick={() => handleReject(tx)}
+                                        disabled={!!processingId}
+                                        className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all uppercase tracking-wide"
+                                    >
+                                        Reject
+                                    </button>
+                                    <button 
+                                        onClick={() => handleApprove(tx)}
+                                        disabled={!!processingId}
+                                        className="px-6 py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center gap-2 uppercase tracking-wide"
+                                    >
+                                        {processingId === tx.id ? <Loader2 className="animate-spin" size={16}/> : <Check size={16}/>}
+                                        Approve Funds
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* HISTORY STATUS (Only for History) */}
+                            {activeTab === 'HISTORY' && (
+                                <div className="text-right">
+                                    <span className="text-xs font-bold text-emerald-600 flex items-center gap-1 justify-end">
+                                        <Check size={14} strokeWidth={3} />
+                                        Completed
+                                    </span>
+                                    <p className="text-[10px] text-slate-400 mt-1">
+                                        Approved by: {tx.approvedBy || 'Auto-System'}
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
