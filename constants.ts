@@ -8,7 +8,7 @@ export const APP_CONFIG = {
   APP_NAME: "SocialBoost IN", 
   
   // Your WhatsApp Number
-  WHATSAPP_NUMBER: "917494019807", 
+  WHATSAPP_NUMBER: "917033626284", 
   
   // Security PIN (Backup access for Local Settings only)
   ADMIN_PIN: "jokr", 
