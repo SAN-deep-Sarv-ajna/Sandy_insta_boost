@@ -193,9 +193,10 @@ const AdminTransactions: React.FC = () => {
                                         </span>
                                     )}
                                 </div>
-                                <p className="text-sm text-slate-500 font-medium">
-                                    User: <span className="text-slate-800">{tx.userEmail}</span>
-                                </p>
+                                <div className="mt-1">
+                                    <p className="font-bold text-slate-900 text-sm">{tx.userName || 'User'}</p>
+                                    <p className="text-xs text-slate-500">{tx.userEmail}</p>
+                                </div>
                                 <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
                                     <Calendar size={10} />
                                     {tx.createdAt?.toDate ? tx.createdAt.toDate().toLocaleString() : 'Just now'}

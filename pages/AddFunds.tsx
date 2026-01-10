@@ -116,6 +116,7 @@ const AddFunds: React.FC = () => {
       // CASE 3: NEW UTR -> CREATE IT
       await addDoc(collection(db, 'transactions'), {
         userId: user.uid,
+        userName: user.displayName || 'User', // 🟢 Added Username
         userEmail: user.email,
         amount: numAmount,
         utr: cleanUtr,

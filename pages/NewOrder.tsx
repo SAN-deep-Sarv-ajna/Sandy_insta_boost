@@ -189,6 +189,7 @@ const NewOrder: React.FC = () => {
         
         await addDoc(collection(db, 'transactions'), {
             userId: user.uid,
+            userName: user.displayName || 'User', // 🟢 Added Username
             amount: charge,
             type: 'DEBIT',
             reason: `Order Queue (Service #${currentService.id})`,
