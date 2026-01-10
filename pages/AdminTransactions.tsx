@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
 import { Check, X, Loader2, ShieldAlert, DollarSign, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -13,8 +13,7 @@ const AdminTransactions: React.FC = () => {
   useEffect(() => {
     if (!isAdmin || !db) return;
 
-    // FIX: Removed 'orderBy' to prevent Firestore "Missing Index" errors.
-    // We filter by status only, then sort in the browser.
+    // Filter by status only, sort client-side
     const q = query(
       collection(db, 'transactions'),
       where('status', '==', 'PENDING')
@@ -24,7 +23,6 @@ const AdminTransactions: React.FC = () => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       // Sort in memory (Newest First)
-      // We handle cases where createdAt might be null (latency compensation)
       data.sort((a: any, b: any) => {
          const timeA = a.createdAt?.seconds || 0;
          const timeB = b.createdAt?.seconds || 0;
@@ -46,6 +44,20 @@ const AdminTransactions: React.FC = () => {
     
     setProcessingId(tx.id);
     try {
+        // 🛡️ SECURITY: MANUAL APPROVAL GUARD
+        // Before running the transaction, ensure this UTR isn't already used elsewhere
+        const duplicateCheck = await getDocs(query(
+            collection(db, 'transactions'),
+            where('utr', '==', tx.utr),
+            where('status', '==', 'COMPLETED')
+        ));
+
+        if (!duplicateCheck.empty) {
+            alert(`⛔ SECURITY BLOCK\n\nUTR ${tx.utr} is ALREADY used in a Completed transaction.\n\nDo not approve this.`);
+            setProcessingId(null);
+            return;
+        }
+
         await runTransaction(db, async (transaction) => {
             const txRef = doc(db, 'transactions', tx.id);
             const userRef = doc(db, 'users', tx.userId);

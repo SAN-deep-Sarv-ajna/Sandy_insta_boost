@@ -19,10 +19,9 @@ const db = getApps().length ? getFirestore() : null;
 // --- SMART SECURE PARSER ---
 function parseBankSMS(text) {
     if (!text) return null;
-    const cleanText = text.toString().toLowerCase(); // Normalize to lowercase for checking
+    const cleanText = text.toString().toLowerCase(); 
 
     // 🛡️ SECURITY STEP 1: BLOCK DEBIT MESSAGES
-    // If the SMS says "debited", "deducted", or "paid", we IGNORE it immediately.
     const debitKeywords = ['debited', 'deducted', 'sent to', 'paid to', 'transfer to', 'withdrawn'];
     if (debitKeywords.some(word => cleanText.includes(word))) {
         console.log("🛑 Blocked DEBIT Transaction SMS");
@@ -30,20 +29,17 @@ function parseBankSMS(text) {
     }
 
     // 🛡️ SECURITY STEP 2: REQUIRE CREDIT KEYWORDS
-    // The SMS MUST contain one of these words to be accepted.
     const creditKeywords = ['credited', 'received', 'deposited', 'added to'];
     if (!creditKeywords.some(word => cleanText.includes(word))) {
         console.log("⚠️ Ignored SMS: Missing 'Credited' keyword");
         return null;
     }
 
-    // 1. Extract Amount (Look for Rs, INR, or just numbers preceded by 'credited')
-    // Matches: Rs 500, INR 500.00, Rs.500
+    // 1. Extract Amount
     const amountRegex = /(?:Rs\.?|INR|Amt)[.\s]*([\d,]+(?:\.\d{1,2})?)/i;
-    const amountMatch = text.match(amountRegex); // Use original text for case-sensitive regex if needed
+    const amountMatch = text.match(amountRegex); 
     
     // 2. Extract UTR (12 Digits)
-    // Most reliable way: Look for exactly 12 digits in a row
     const utrRegex = /\b\d{12}\b/;
     const utrMatch = text.match(utrRegex);
 
@@ -70,42 +66,32 @@ export default async function handler(req, res) {
   if (!db) return res.status(500).json({ error: 'Database not connected.' });
 
   // ==========================================
-  // MODE 1: ANDROID WEBHOOK (POST)
-  // Accepts JSON: { message: "Raw SMS Text...", secret: "..." }
+  // MODE 1: WEBHOOK (SMS Received)
   // ==========================================
   if (req.method === 'POST') {
-      // FIX: Added 'text' to destructuring because SmsForwarder uses %text%
       let { utr, amount, message, sms, text, secret } = req.body;
       const headerSecret = req.headers['x-android-secret'];
 
       // 1. Security Check
       const SERVER_SECRET = process.env.ANDROID_SECRET;
-      
-      // Strict check: One of the provided secrets must match the server secret
       const isSecretValid = 
         (secret && secret === SERVER_SECRET) || 
         (headerSecret && headerSecret === SERVER_SECRET);
 
       if (!SERVER_SECRET || !isSecretValid) {
-          console.error("⛔ Security Mismatch. Server:", SERVER_SECRET, "Received Body:", secret, "Header:", headerSecret);
+          console.error("⛔ Security Mismatch.");
           return res.status(401).json({ error: 'Unauthorized: Invalid Secret' });
       }
 
-      // 2. Smart Extraction (If raw message is provided)
-      // FIX: Prioritize 'text' which comes from the app
+      // 2. Parse Data
       const rawText = text || message || sms;
-      
       if (rawText && (!utr || !amount)) {
-          console.log("Parsing Raw SMS:", rawText);
           const extracted = parseBankSMS(rawText);
           if (extracted) {
               utr = extracted.utr;
               amount = extracted.amount;
           } else {
-              // If it failed extraction (e.g. it was a Debit message), we return 200 OK 
-              // but with success: false. This tells the App "We got it, but we don't use it".
-              // If we send 400 error, the App might retry sending the debit message repeatedly.
-              console.log("❌ Extraction Skipped (Debit or Invalid Format)");
+              // Gracefully ignore irrelevant SMS (e.g. Debits, OTPs)
               return res.status(200).json({ success: false, message: 'SMS Ignored (Debit or Invalid)' });
           }
       }
@@ -118,20 +104,25 @@ export default async function handler(req, res) {
       const numAmount = parseFloat(amount);
 
       try {
-          // 3. Save Deposit Record
+          // 3. Save to Bank Deposits Collection
+          // We use 'set' with merge. If it already exists and isUsed is true, we keep it true.
           await db.collection('bank_deposits').doc(cleanUTR).set({
               utr: cleanUTR,
               amount: numAmount,
               originalMessage: rawText || 'Direct Data',
               verifiedAt: FieldValue.serverTimestamp(),
-              isUsed: false
+              // Note: We don't overwrite 'isUsed' here if it exists. 
+              // We only set it to false if the doc is NEW.
+              // To do this safely, we use the fact that set w/ merge won't overwrite existing fields unless specified.
           }, { merge: true });
 
-          // 4. Try to Match
+          // 4. TRIGGER MATCHING (The Key Step)
           const matchResult = await matchAndApprove(cleanUTR, numAmount);
 
           if(matchResult.matched) {
             console.log("✅ Auto-Matched Transaction:", cleanUTR);
+          } else if (matchResult.reason) {
+            console.log(`⚠️ Match Failed for ${cleanUTR}: ${matchResult.reason}`);
           }
 
           return res.status(200).json({ 
@@ -146,41 +137,29 @@ export default async function handler(req, res) {
       }
   }
 
-  // ==========================================
-  // MODE 2: CLIENT VERIFICATION (GET)
-  // ==========================================
-  if (req.method === 'GET') {
-      const { utr } = req.query;
-      if (!utr) return res.status(400).json({ error: 'UTR Required' });
-
-      try {
-          const depositSnap = await db.collection('bank_deposits').doc(utr).get();
-          if (!depositSnap.exists) {
-              return res.status(404).json({ success: false, message: 'Wait for Bank SMS to arrive.' });
-          }
-
-          const depositData = depositSnap.data();
-          if (depositData.isUsed) {
-              return res.status(400).json({ success: false, message: 'UTR already used.' });
-          }
-
-          const matchResult = await matchAndApprove(utr, depositData.amount);
-          return res.status(200).json(matchResult);
-      } catch (error) {
-          return res.status(500).json({ error: error.message });
-      }
-  }
-
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
 // MATCHING LOGIC
 async function matchAndApprove(utr, amount) {
+    // 🛡️ SECURITY STEP: GLOBAL UTR CHECK
+    // Ensure this UTR has not been used in ANY completed transaction before.
+    const doubleSpendCheck = await db.collection('transactions')
+        .where('utr', '==', utr)
+        .where('status', '==', 'COMPLETED')
+        .limit(1)
+        .get();
+
+    if (!doubleSpendCheck.empty) {
+        return { matched: false, reason: "UTR Double Spend Prevented (Already Completed)" };
+    }
+
+    // Now find the Pending Request
     const txsRef = db.collection('transactions');
     const q = txsRef.where('utr', '==', utr).where('status', '==', 'PENDING').limit(1);
     const snapshot = await q.get();
 
-    if (snapshot.empty) return { matched: false };
+    if (snapshot.empty) return { matched: false, reason: "No Pending Request Found" };
 
     const txDoc = snapshot.docs[0];
     const txData = txDoc.data();
@@ -191,7 +170,14 @@ async function matchAndApprove(utr, amount) {
     }
 
     await db.runTransaction(async (t) => {
+        // Double check Deposit Status inside Transaction
         const depositRef = db.collection('bank_deposits').doc(utr);
+        const depositDoc = await t.get(depositRef);
+        
+        if (depositDoc.exists && depositDoc.data().isUsed === true) {
+             throw new Error("Bank Deposit SMS already marked as Used!");
+        }
+
         t.update(depositRef, { isUsed: true, usedBy: txData.userId, usedAt: FieldValue.serverTimestamp() });
 
         t.update(txDoc.ref, { 
