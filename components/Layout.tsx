@@ -19,8 +19,7 @@ import {
   Lock,
   Package,
   Crown,
-  MapPin,
-  ChevronRight
+  MapPin
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -33,7 +32,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [settings, setSettings] = useState(getStoredSettings());
   const location = useLocation();
-  const { user, signInWithGoogle, logout, isAdmin } = useAuth();
+  const { user, signInWithGoogle, logout, isAdmin } = useAuth(); // Auth Hook
 
   useEffect(() => {
     if (window.innerWidth < 1024) {
@@ -66,6 +65,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   if (isAdmin) {
       navItems.push({ name: 'Order Queue', path: '/admin/orders', icon: ListOrdered });
       navItems.push({ name: 'Funds Approvals', path: '/admin/transactions', icon: ShieldAlert });
+      // Settings link removed to hide it from UI. Access via URL only.
   }
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
@@ -77,73 +77,64 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex relative font-sans text-slate-900 selection:bg-brand-100 selection:text-brand-900 overflow-hidden">
+    <div className="min-h-screen bg-slate-50/50 flex relative font-sans text-slate-900 selection:bg-brand-100 selection:text-brand-900">
       {/* Mobile Overlay */}
       <div 
-        className={`fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={() => setIsSidebarOpen(false)}
       />
 
       {/* Sidebar */}
       <aside 
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0f172a] text-slate-300 transform transition-transform duration-300 ease-out shadow-2xl lg:shadow-none border-r border-slate-800 flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-slate-300 transform transition-transform duration-300 ease-out shadow-2xl lg:shadow-none border-r border-slate-800 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        {/* Brand Header */}
-        <div className="h-20 flex items-center px-6 border-b border-slate-800/80 bg-[#0f172a] justify-between shrink-0">
+        <div className="h-20 flex items-center px-8 border-b border-slate-800/50 bg-slate-900/50 justify-between backdrop-blur-sm">
           <div className="flex items-center gap-3 text-white">
-            <div className="w-9 h-9 bg-brand-600 rounded-xl flex items-center justify-center shadow-lg shadow-brand-500/20 ring-1 ring-white/10 text-white">
-              <Zap size={20} className="fill-current" />
+            <div className="w-9 h-9 bg-gradient-to-br from-brand-400 to-brand-600 rounded-xl flex items-center justify-center shadow-lg shadow-brand-500/20 ring-1 ring-white/10">
+              <Zap size={20} className="text-white fill-white" />
             </div>
-            <span className="font-bold text-lg tracking-tight">SocialBoost</span>
+            <span className="font-black text-lg tracking-tight">SocialBoost</span>
           </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white transition-colors p-1 bg-slate-800/50 rounded-lg">
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-slate-400 hover:text-white transition-colors">
              <X size={20} />
           </button>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
-          
-          {/* User Profile Card */}
-          <div className={`rounded-xl p-4 transition-all duration-300 relative overflow-hidden group ${isAdmin ? 'bg-indigo-950/30 border border-indigo-500/20' : 'bg-slate-800/40 border border-slate-700/50'}`}>
+        <div className="p-6 flex flex-col h-[calc(100%-5rem)] overflow-y-auto">
+          {/* User Profile / Login Section */}
+          <div className={`border rounded-xl p-4 mb-6 shrink-0 backdrop-blur-sm transition-colors ${isAdmin ? 'bg-indigo-900/40 border-indigo-500/30' : 'bg-slate-800/50 border-slate-700/50'}`}>
             {user ? (
-                <div className="space-y-4 relative z-10">
+                <div className="space-y-3">
                    <div className="flex items-center gap-3">
-                       <img src={user.photoURL || "https://ui-avatars.com/api/?name=User&background=random"} alt="User" className="w-10 h-10 rounded-full border-2 border-slate-700 shadow-sm" />
+                       <img src={user.photoURL || "https://ui-avatars.com/api/?name=User&background=random"} alt="User" className="w-10 h-10 rounded-full border-2 border-slate-700" />
                        <div className="overflow-hidden">
                            <p className="text-white font-bold text-sm truncate flex items-center gap-2">
-                             {user.displayName?.split(' ')[0] || 'Client'}
-                             {isAdmin && <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shadow-sm flex items-center gap-1"><Crown size={8} fill="currentColor" /> Admin</span>}
+                             {user.displayName || 'Client'}
+                             {isAdmin && <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><Crown size={8} fill="currentColor" /> OWNER</span>}
                            </p>
                            <p className="text-slate-400 text-xs truncate">{user.email}</p>
                        </div>
                    </div>
-                   
-                   <div className="bg-slate-950/60 rounded-lg p-3 flex justify-between items-center border border-slate-800/50">
-                       <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Balance</span>
-                       <span className="text-emerald-400 font-bold font-mono tracking-tight">₹{user.balance.toFixed(2)}</span>
+                   <div className="bg-slate-900/50 rounded-lg p-3 flex justify-between items-center border border-slate-700/50">
+                       <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Balance</span>
+                       <span className="text-emerald-400 font-bold font-mono">₹{user.balance.toFixed(2)}</span>
                    </div>
-
-                   <button onClick={logout} className="w-full text-xs text-slate-400 hover:text-white flex items-center justify-center gap-2 py-2 hover:bg-slate-800 rounded-lg transition-all font-medium border border-transparent hover:border-slate-700">
+                   <button onClick={logout} className="w-full text-xs text-slate-400 hover:text-white flex items-center justify-center gap-2 py-2 hover:bg-slate-700 rounded-lg transition-all">
                        <LogOut size={14} /> Sign Out
                    </button>
                 </div>
             ) : (
-                <div className="text-center py-2">
-                    <p className="text-xs text-slate-400 mb-3 font-medium">Access your dashboard</p>
-                    <button 
-                      onClick={signInWithGoogle}
-                      className="w-full bg-white text-slate-900 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors shadow-sm"
-                    >
-                       <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-4 h-4" alt="G" />
-                       Login / Signup
-                    </button>
-                </div>
+                <button 
+                  onClick={signInWithGoogle}
+                  className="w-full bg-white text-slate-900 py-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors"
+                >
+                   <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-4 h-4" alt="G" />
+                   Login with Google
+                </button>
             )}
           </div>
 
-          {/* Navigation Links */}
-          <nav className="space-y-1">
+          <nav className="space-y-1.5 flex-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.path;
@@ -153,68 +144,77 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   to={item.path}
                   onClick={handleNavClick}
                   className={`
-                    flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative
+                    flex items-center gap-3.5 px-4 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 group
                     ${isActive 
-                      ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20' 
-                      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}
+                      ? 'bg-brand-600 text-white shadow-lg shadow-brand-900/20 ring-1 ring-white/10' 
+                      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white hover:pl-5'}
                   `}
                 >
                   <Icon size={18} className={`${isActive ? 'text-white' : 'text-slate-500 group-hover:text-white'} transition-colors`} />
-                  <span className="flex-1">{item.name}</span>
+                  {item.name}
                   {(item.name === 'Funds Approvals' || item.name === 'Order Queue') && (
-                     <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.6)]"></span>
+                     <span className="ml-auto w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
                   )}
-                  {isActive && <ChevronRight size={14} className="opacity-50" />}
                 </NavLink>
               );
             })}
           </nav>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-slate-800/50 bg-[#0f172a] shrink-0">
-          <Link to="/add-funds" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/20 active:scale-[0.98] ring-1 ring-white/10 group">
-              <Wallet size={18} className="group-hover:scale-110 transition-transform" />
-              <span className="tracking-tight text-sm">Add Funds</span>
-          </Link>
           
-          <div className="mt-4 flex items-center justify-center gap-2 opacity-30 hover:opacity-100 transition-opacity duration-300">
-             <MapPin size={10} className="text-brand-400" />
-             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">East Champaran (Bihar)</span>
+          {/* Quick Action */}
+          <div className="mb-4 pt-6 border-t border-slate-800/50">
+              <Link to="/add-funds" className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-900/20 active:scale-[0.98] ring-1 ring-white/10">
+                  <Wallet size={18} />
+                  <span className="tracking-tight">Add Funds</span>
+              </Link>
+          </div>
+
+          <div className="pt-6 border-t border-slate-800/50">
+            <div className="flex flex-col items-center text-center">
+                <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-2 flex items-center gap-1">
+                   <MapPin size={10} /> Engineered By
+                </p>
+                <div className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700/50 px-4 py-2 rounded-xl shadow-inner w-full">
+                    <p className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-300 via-indigo-300 to-purple-300 tracking-wide drop-shadow-sm">
+                        East Champaran (Bihar)
+                    </p>
+                </div>
+            </div>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main Content */}
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'lg:ml-72' : 'lg:ml-0'}`}>
-        <header className="h-20 bg-white/90 border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 backdrop-blur-md shadow-sm">
+        <header className="h-20 bg-white/80 border-b border-slate-200/60 flex items-center justify-between px-4 lg:px-10 sticky top-0 z-30 backdrop-blur-md">
           <div className="flex items-center gap-4">
-            <button onClick={toggleSidebar} className="p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-slate-200">
+            <button onClick={toggleSidebar} className="p-2 -ml-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all">
                 <Menu size={24} />
             </button>
             <div className={`flex-1 font-bold text-slate-800 transition-opacity duration-300 ${isSidebarOpen ? 'lg:opacity-0 lg:pointer-events-none block' : 'opacity-100'}`}>
-                <span className="lg:hidden text-lg tracking-tight">SocialBoost</span>
+                <span className="lg:hidden text-lg tracking-tight">SocialBoost IN</span>
                 <span className="hidden lg:inline-flex items-center gap-2 text-xl tracking-tight">
+                    <div className="w-7 h-7 bg-brand-500 rounded-lg flex items-center justify-center shadow-sm">
+                        <Zap size={16} className="text-white fill-white" />
+                    </div>
                     SocialBoost IN
                 </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-4 ml-auto">
+          <div className="flex items-center gap-4 ml-auto">
              {user && (
-                 <div className="hidden sm:flex flex-col items-end mr-2 px-3 py-1 bg-slate-50 rounded-lg border border-slate-100">
+                 <div className="hidden sm:flex flex-col items-end mr-2">
                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</span>
                      <span className="font-mono font-bold text-emerald-600">₹{user.balance.toFixed(2)}</span>
                  </div>
              )}
-             <span className="hidden md:inline-flex text-[11px] font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 whitespace-nowrap tracking-wide uppercase items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Official Provider
+             <span className="text-[11px] font-bold text-brand-700 bg-brand-50 px-4 py-2 rounded-full border border-brand-100 whitespace-nowrap shadow-sm tracking-wide uppercase">
+                ✨ Official Price List
              </span>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-6 lg:p-8 scroll-smooth">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-10">
           <div className="max-w-7xl mx-auto">
             {children}
           </div>
