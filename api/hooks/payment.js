@@ -58,17 +58,27 @@ export default async function handler(req, res) {
   // Accepts JSON: { message: "Raw SMS Text...", secret: "..." }
   // ==========================================
   if (req.method === 'POST') {
-      let { utr, amount, message, sms, secret } = req.body;
+      // FIX: Added 'text' to destructuring because SmsForwarder uses %text%
+      let { utr, amount, message, sms, text, secret } = req.body;
       const headerSecret = req.headers['x-android-secret'];
 
       // 1. Security Check
       const SERVER_SECRET = process.env.ANDROID_SECRET;
-      if (!SERVER_SECRET || (secret !== SERVER_SECRET && headerSecret !== SERVER_SECRET)) {
+      
+      // Strict check: One of the provided secrets must match the server secret
+      const isSecretValid = 
+        (secret && secret === SERVER_SECRET) || 
+        (headerSecret && headerSecret === SERVER_SECRET);
+
+      if (!SERVER_SECRET || !isSecretValid) {
+          console.error("⛔ Security Mismatch. Server:", SERVER_SECRET, "Received Body:", secret, "Header:", headerSecret);
           return res.status(401).json({ error: 'Unauthorized: Invalid Secret' });
       }
 
       // 2. Smart Extraction (If raw message is provided)
-      const rawText = message || sms;
+      // FIX: Prioritize 'text' which comes from the app
+      const rawText = text || message || sms;
+      
       if (rawText && (!utr || !amount)) {
           console.log("Parsing Raw SMS:", rawText);
           const extracted = parseBankSMS(rawText);
@@ -76,6 +86,7 @@ export default async function handler(req, res) {
               utr = extracted.utr;
               amount = extracted.amount;
           } else {
+              console.log("❌ Could not extract UTR/Amount");
               return res.status(400).json({ error: 'Could not extract UTR/Amount from SMS text' });
           }
       }
@@ -99,6 +110,10 @@ export default async function handler(req, res) {
 
           // 4. Try to Match
           const matchResult = await matchAndApprove(cleanUTR, numAmount);
+
+          if(matchResult.matched) {
+            console.log("✅ Auto-Matched Transaction:", cleanUTR);
+          }
 
           return res.status(200).json({ 
               success: true, 
@@ -151,6 +166,7 @@ async function matchAndApprove(utr, amount) {
     const txDoc = snapshot.docs[0];
     const txData = txDoc.data();
 
+    // Allow small difference (float math)
     if (Math.abs(txData.amount - amount) > 2.0) {
         return { matched: false, message: `Amount Mismatch. Received: ${amount}, Expected: ${txData.amount}` };
     }
