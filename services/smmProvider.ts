@@ -1,88 +1,69 @@
 import { Platform, Service, ServiceType } from '../types';
 import { APP_CONFIG } from '../constants';
+import { db } from '../lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // DEFAULT SETTINGS
 const DEFAULT_API_URL = 'https://smmdevil.com/api/v2';
 const INTERNAL_PROXY_URL = '/api/proxy'; 
 
-// STORAGE KEYS
-const STORAGE_KEY_API = 'smm_api_key';
-const STORAGE_KEY_PROXY = 'smm_proxy_url';
-const STORAGE_KEY_USE_PROXY = 'smm_use_proxy';
-const STORAGE_KEY_EXCHANGE_RATE = 'smm_exchange_rate';
-const STORAGE_KEY_AUTO_RATE = 'smm_auto_rate';
-const STORAGE_KEY_GLOBAL_DISCOUNT = 'smm_global_discount';
-const STORAGE_KEY_UPI_ID = 'smm_upi_id';
-const STORAGE_KEY_IS_ADMIN = 'smm_is_admin_unlocked';
+export const SETTINGS_UPDATED_EVENT = 'settings_updated';
 
-// Event constant for real-time updates
-export const SETTINGS_UPDATED_EVENT = 'smm_settings_updated';
+// --- FIRESTORE SETTINGS MANAGERS ---
 
-// AUTHENTICATION CHECK
-export const isAdminUnlocked = (): boolean => {
-  const unlocked = localStorage.getItem(STORAGE_KEY_IS_ADMIN);
-  return unlocked === 'true';
+export interface PublicSettings {
+    upiId: string;
+    exchangeRate: number;
+    globalDiscount: number;
+    autoExchangeRate: boolean;
+}
+
+export interface PrivateSettings {
+    apiKey: string;
+    proxyUrl: string;
+    useProxy: boolean;
+    apiUrl: string;
+}
+
+export const fetchPublicSettings = async (): Promise<PublicSettings | null> => {
+    if (!db) return null;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'public'));
+        if (snap.exists()) return snap.data() as PublicSettings;
+        return null;
+    } catch (e) {
+        console.error("Error fetching public settings:", e);
+        return null;
+    }
 };
 
-export const setAdminUnlocked = (status: boolean) => {
-  localStorage.setItem(STORAGE_KEY_IS_ADMIN, String(status));
-  window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
+export const fetchPrivateSettings = async (): Promise<PrivateSettings | null> => {
+    if (!db) return null;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'private'));
+        if (snap.exists()) return snap.data() as PrivateSettings;
+        return null;
+    } catch (e) {
+        console.error("Error fetching private settings:", e);
+        return null;
+    }
 };
 
-export const getStoredSettings = () => {
-  const isUnlocked = isAdminUnlocked();
-
-  const storedProxy = localStorage.getItem(STORAGE_KEY_USE_PROXY);
-  const useProxy = storedProxy === 'true'; 
-
-  const exchangeRate = parseFloat(localStorage.getItem(STORAGE_KEY_EXCHANGE_RATE) || '1');
-  const autoExchangeRate = localStorage.getItem(STORAGE_KEY_AUTO_RATE) === 'true';
-  const globalDiscount = parseFloat(localStorage.getItem(STORAGE_KEY_GLOBAL_DISCOUNT) || '0');
-  const upiId = localStorage.getItem(STORAGE_KEY_UPI_ID) || '';
-
-  // 🛡️ SECURITY CRITICAL: 
-  // If the user is NOT an Admin, we strictly return an EMPTY API Key.
-  let rawApiKey = '';
-  if (isUnlocked) {
-      rawApiKey = localStorage.getItem(STORAGE_KEY_API) || APP_CONFIG.PROVIDER_API_KEY || '';
-  }
-  
-  return {
-    apiKey: rawApiKey,
-    proxyUrl: localStorage.getItem(STORAGE_KEY_PROXY) || INTERNAL_PROXY_URL,
-    useProxy: useProxy,
-    apiUrl: DEFAULT_API_URL,
-    exchangeRate: isNaN(exchangeRate) || exchangeRate <= 0 ? 1 : exchangeRate,
-    autoExchangeRate,
-    globalDiscount: isNaN(globalDiscount) ? 0 : globalDiscount,
-    // Hide settings if NOT admin
-    hideSettings: !isUnlocked,
-    upiId
-  };
-};
-
-export const saveSettings = (
-    apiKey: string, 
-    proxyUrl: string, 
-    useProxy: boolean, 
-    exchangeRate: number, 
-    autoExchangeRate: boolean, 
-    globalDiscount: number,
-    hideSettings: boolean,
-    upiId: string
+export const saveSystemSettings = async (
+    pub: PublicSettings, 
+    priv: PrivateSettings
 ) => {
-  localStorage.setItem(STORAGE_KEY_API, apiKey.trim());
-  localStorage.setItem(STORAGE_KEY_PROXY, proxyUrl.trim());
-  localStorage.setItem(STORAGE_KEY_USE_PROXY, String(useProxy));
-  localStorage.setItem(STORAGE_KEY_EXCHANGE_RATE, String(exchangeRate));
-  localStorage.setItem(STORAGE_KEY_AUTO_RATE, String(autoExchangeRate));
-  localStorage.setItem(STORAGE_KEY_GLOBAL_DISCOUNT, String(globalDiscount));
-  localStorage.setItem(STORAGE_KEY_UPI_ID, upiId.trim());
-
-  window.dispatchEvent(new Event(SETTINGS_UPDATED_EVENT));
+    if (!db) throw new Error("Database not connected");
+    
+    // Save Public Data
+    await setDoc(doc(db, 'settings', 'public'), pub, { merge: true });
+    
+    // Save Private Data
+    await setDoc(doc(db, 'settings', 'private'), priv, { merge: true });
 };
 
-// ... (Rest of helper functions getPlatform, getType stay the same) ...
+// --- HELPER FUNCTIONS ---
+
 const getPlatform = (name: string, category: string): Platform => {
   const text = (name + ' ' + category).toLowerCase();
   if (text.includes('instagram') || text.includes(' ig ') || text.startsWith('ig') || text.includes('reels')) return Platform.INSTAGRAM;
@@ -140,26 +121,20 @@ export const fetchLiveRate = async (): Promise<number | null> => {
     }
 };
 
-export const fetchProviderServices = async (): Promise<Service[]> => {
-  // Only Admin can FETCH full list to protect pricing data
-  if (!isAdminUnlocked()) {
-      return []; 
-  }
-
-  const { apiKey, proxyUrl, useProxy, apiUrl, exchangeRate, autoExchangeRate, globalDiscount } = getStoredSettings();
-
+// Updated: Accepts explicit configuration to avoid relying on localStorage for keys
+export const fetchProviderServices = async (
+    apiKey?: string, 
+    proxyUrl: string = INTERNAL_PROXY_URL, 
+    useProxy: boolean = false, 
+    exchangeRate: number = 1,
+    globalDiscount: number = 0
+): Promise<Service[]> => {
+  
   if (!apiKey) {
-    throw new Error("API Key is missing.");
+    throw new Error("API Key is missing. Admin must configure it in Settings.");
   }
 
-  let effectiveExchangeRate = exchangeRate;
-  if (autoExchangeRate) {
-      const liveRate = await fetchLiveRate();
-      if (liveRate) {
-          effectiveExchangeRate = liveRate;
-          localStorage.setItem(STORAGE_KEY_EXCHANGE_RATE, String(liveRate));
-      }
-  }
+  const apiUrl = DEFAULT_API_URL;
 
   try {
     const params = new URLSearchParams();
@@ -195,7 +170,7 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
 
     return data.map((item: ProviderService) => {
       const rawRate = parseFloat(item.rate); 
-      const costInLocalCurrency = (isNaN(rawRate) ? 0 : rawRate) * effectiveExchangeRate;
+      const costInLocalCurrency = (isNaN(rawRate) ? 0 : rawRate) * exchangeRate;
       const standardSellingRate = costInLocalCurrency * 1.5; 
       const finalSellingRate = globalDiscount > 0 
          ? standardSellingRate * (1 - globalDiscount / 100)
@@ -215,15 +190,20 @@ export const fetchProviderServices = async (): Promise<Service[]> => {
       };
     });
   } catch (error) {
-    console.error("Failed to fetch from Sandyinsta:", error);
+    console.error("Failed to fetch from Provider:", error);
     throw error;
   }
 };
 
 export const placeProviderOrder = async (serviceId: number, link: string, quantity: number) => {
-  const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
+  // To place an order, we currently need the API Key.
+  // In a fully secure app, this function would be a Server-Side API route.
+  // For now, since this is called by AdminOrders, we will fetch the key from Firestore (Private) first.
   
-  if (!apiKey) throw new Error("System Error: API Key not configured. Contact Support.");
+  const settings = await fetchPrivateSettings();
+  if (!settings || !settings.apiKey) throw new Error("System Error: API Key not configured in Database.");
+
+  const { apiKey, proxyUrl, useProxy, apiUrl } = settings;
 
   try {
     const params = new URLSearchParams();
@@ -256,11 +236,8 @@ export const placeProviderOrder = async (serviceId: number, link: string, quanti
   }
 };
 
-// 🔒 UPDATED: Now uses Secure Server Endpoint
 export const fetchOrderStatus = async (orderId: string | number) => {
   try {
-    // We now call our own secure server instead of the provider directly.
-    // This way, we don't need the API key in the browser.
     const response = await fetch(`/api/status?order=${orderId}`, {
       method: 'GET',
     });
@@ -278,9 +255,10 @@ export const fetchOrderStatus = async (orderId: string | number) => {
 }
 
 export const getBalance = async () => {
-   if (!isAdminUnlocked()) return null;
-   const { apiKey, proxyUrl, useProxy, apiUrl } = getStoredSettings();
-   if (!apiKey) return null;
+   const settings = await fetchPrivateSettings();
+   if (!settings || !settings.apiKey) return null;
+   
+   const { apiKey, proxyUrl, useProxy, apiUrl } = settings;
 
    try {
     const params = new URLSearchParams();
@@ -301,3 +279,15 @@ export const getBalance = async () => {
      return null;
    }
 }
+
+// LEGACY SUPPORT (To prevent crashes in existing components, but should be phased out)
+export const getStoredSettings = () => {
+    return { 
+        apiKey: '', 
+        proxyUrl: INTERNAL_PROXY_URL, 
+        useProxy: false, 
+        exchangeRate: 1, 
+        upiId: 'sandeep@okaxis' 
+    }; 
+};
+export const isAdminUnlocked = () => false; // Deprecated

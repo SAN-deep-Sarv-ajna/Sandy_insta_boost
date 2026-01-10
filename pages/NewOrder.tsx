@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { MOCK_SERVICES, APP_CONFIG } from '../constants';
 import { Platform, Service } from '../types';
 import { TrendingUp, Info, Check, Server, XCircle, ShieldCheck, ShoppingBag, Loader2, Zap, MessageCircle, Wallet, Clock } from 'lucide-react';
-import { fetchProviderServices, placeProviderOrder, getStoredSettings, isAdminUnlocked } from '../services/smmProvider';
+import { fetchProviderServices, placeProviderOrder, fetchPublicSettings, fetchPrivateSettings } from '../services/smmProvider';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
@@ -15,8 +15,8 @@ const NewOrder: React.FC = () => {
   const [displayedServices, setDisplayedServices] = useState<Service[]>(MOCK_SERVICES);
   
   const [isLoading, setIsLoading] = useState(false);
-  const [isAdminMode, setIsAdminMode] = useState(false); // UI Toggle State
-  const { user, signInWithGoogle, isAdmin } = useAuth(); // 🔒 Use secure isAdmin from Context
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const { user, signInWithGoogle, isAdmin } = useAuth(); 
   const navigate = useNavigate();
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'CLIENT'>('CLIENT');
@@ -36,20 +36,46 @@ const NewOrder: React.FC = () => {
 
   const [searchParams] = useSearchParams();
 
+  // 1. On Mount: Check Admin and Load appropriate data
   useEffect(() => {
-    // 🔒 SECURITY: Only allow Admin Mode if the User is actually an Admin in Firebase
     setIsAdminMode(isAdmin);
-    
-    // We still check 'isAdminUnlocked' (PIN) just to see if we can Fetch the API list (requires key)
-    // But the ability to SEE the toggle is now restricted to real admins.
-    if(isAdmin && isAdminUnlocked() && getStoredSettings().apiKey) {
-      loadApiServices();
-      setViewMode('ADMIN');
+    if(isAdmin) {
+      loadAdminData();
     } else {
-      setViewMode('CLIENT');
       setDisplayedServices(MOCK_SERVICES);
+      // Optional: We could fetch public exchange rates here if MOCK_SERVICES were dynamic.
     }
   }, [isAdmin]);
+
+  const loadAdminData = async () => {
+    // Admins get to see Live Services from API
+    setIsLoading(true);
+    try {
+        const priv = await fetchPrivateSettings();
+        const pub = await fetchPublicSettings();
+        
+        if (priv && priv.apiKey) {
+            const data = await fetchProviderServices(
+                priv.apiKey, 
+                priv.proxyUrl, 
+                priv.useProxy, 
+                pub?.exchangeRate || 1, 
+                pub?.globalDiscount || 0
+            );
+            
+            if(data.length > 0) {
+                setLiveServices(data);
+                setViewMode('ADMIN'); // Default to Admin View if key exists
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load admin services", e);
+        // Fallback to Catalog
+        setViewMode('CLIENT');
+    } finally {
+        setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (viewMode === 'ADMIN' && liveServices.length > 0) {
@@ -59,28 +85,6 @@ const NewOrder: React.FC = () => {
     }
     setSelectedServiceId(0);
   }, [viewMode, liveServices, catalogServices]);
-
-  const loadApiServices = async () => {
-    setIsLoading(true);
-    setOrderResult(null); 
-    try {
-      const data = await fetchProviderServices();
-      if(data && data.length > 0) {
-        setLiveServices(data);
-        if (viewMode === 'ADMIN') {
-            setDisplayedServices(data);
-        }
-      }
-    } catch (e: any) {
-      console.error("Failed to load services", e);
-      if (viewMode === 'ADMIN') {
-          setOrderResult({ success: false, message: "API Connection Failed. Switched to Offline Catalog." });
-          setViewMode('CLIENT');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   useEffect(() => {
     const sidParam = searchParams.get('serviceId');
@@ -134,7 +138,6 @@ const NewOrder: React.FC = () => {
     }
   }, [quantity, currentService, manualDiscount]);
 
-  // --- NEW WORKFLOW: QUEUE ORDER ---
   const handlePurchase = async () => {
     if (!user) {
         alert("Please login first to place an order.");
@@ -145,7 +148,6 @@ const NewOrder: React.FC = () => {
     if (!link) return alert("Enter link");
     if (!db) return alert("Database error.");
 
-    // 1. Balance Check
     if (user.balance < charge) {
         return alert(`Insufficient Balance! You need ₹${formatINR(charge - user.balance)} more.`);
     }
@@ -168,13 +170,10 @@ const NewOrder: React.FC = () => {
                 throw "Insufficient funds during transaction.";
             }
 
-            // 2. Deduct Balance
             const newBalance = currentBalance - charge;
             transaction.update(userRef, { balance: newBalance });
         });
 
-        // 3. Save to DB as PENDING (Queue)
-        // We do NOT call the API here. We let the Admin do it manually.
         await addDoc(collection(db, 'orders'), {
             userId: user.uid,
             userEmail: user.email,
@@ -188,7 +187,6 @@ const NewOrder: React.FC = () => {
             createdAt: serverTimestamp()
         });
         
-        // 4. Log Transaction
         await addDoc(collection(db, 'transactions'), {
             userId: user.uid,
             amount: charge,
@@ -218,13 +216,13 @@ const NewOrder: React.FC = () => {
 
   // ADMIN FORCE ORDER (Direct API, bypasses wallet)
   const handleAdminOrder = async () => {
-    // 🔒 Extra Security Check
     if (!isAdmin) return alert("Security Alert: Access Denied.");
 
     if (!currentService || !quantity || !link) return alert("Fill all fields");
     if (!window.confirm("Place Direct API Order (Bypass Wallet)?")) return;
     setPlacingOrder(true);
     try {
+        // placeProviderOrder internally fetches the key from Private Settings in Firestore
         const res = await placeProviderOrder(currentService.id, link, quantity);
         if(res.order) setOrderResult({success: true, message: `Admin Order Placed: ${res.order}`});
         else setOrderResult({success: false, message: res.error || "Failed"});
@@ -309,7 +307,6 @@ const NewOrder: React.FC = () => {
                 <p className="text-4xl font-black text-slate-900 mt-2 tracking-tighter relative z-10 flex items-baseline gap-1">
                     {formatINR(charge)} <span className="text-sm font-bold text-slate-400 ml-2 tracking-normal">INR</span>
                 </p>
-                {/* Note about approval */}
                 {viewMode === 'CLIENT' && (
                     <div className="absolute right-0 bottom-0 p-4 opacity-50">
                         <Clock className="text-slate-300 w-16 h-16 -mb-4 -mr-4" />

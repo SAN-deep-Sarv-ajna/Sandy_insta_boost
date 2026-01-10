@@ -51,7 +51,17 @@ service cloud.firestore {
     
     // 🏦 BANK DEPOSITS (For Android Auto-Verify)
     match /bank_deposits/{utr} {
-        allow read, write: if true; // The secure API handles the logic, but this allows debugging.
+        allow read, write: if true; 
+    }
+
+    // ⚙️ GLOBAL SETTINGS (The Secure Store)
+    match /settings/public {
+      allow read: if true; // Everyone needs UPI ID & Exchange Rate
+      allow write: if isAdmin(); // Only you can change it
+    }
+    
+    match /settings/private {
+      allow read, write: if isAdmin(); // API Keys are hidden from everyone else
     }
   }
 }

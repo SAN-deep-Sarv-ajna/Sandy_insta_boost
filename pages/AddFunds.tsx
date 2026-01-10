@@ -1,29 +1,40 @@
-import React, { useState } from 'react';
-import { QrCode, Copy, Check, ShieldCheck, AlertTriangle, History, Wallet, ArrowRight, Loader2, RefreshCw, Smartphone } from 'lucide-react';
-import { getStoredSettings } from '../services/smmProvider';
+import React, { useState, useEffect } from 'react';
+import { QrCode, Copy, Check, ShieldCheck, History, Wallet, Loader2, RefreshCw, Smartphone, AlertTriangle } from 'lucide-react';
+import { fetchPublicSettings } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { Link } from 'react-router-dom';
 
 const AddFunds: React.FC = () => {
   const { user, signInWithGoogle } = useAuth();
-  const settings = getStoredSettings();
-  const upiId = settings.upiId || 'sandeep@okaxis'; // Default fallback
+  
+  // State for Global UPI ID (Fetched from Database)
+  const [upiId, setUpiId] = useState<string>('sandeep@okaxis'); 
+  const [loadingSettings, setLoadingSettings] = useState(true);
 
   const [amount, setAmount] = useState<string>('');
   const [utr, setUtr] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   
-  // Status State
   const [status, setStatus] = useState<{type: 'success' | 'error' | 'verifying', msg: string} | null>(null);
   const [checkingId, setCheckingId] = useState<string | null>(null);
-
   const [history, setHistory] = useState<any[]>([]);
 
-  // Load Transaction History
-  React.useEffect(() => {
+  // 1. Fetch Secure UPI ID on Mount
+  useEffect(() => {
+      const getSettings = async () => {
+          const settings = await fetchPublicSettings();
+          if (settings && settings.upiId) {
+              setUpiId(settings.upiId);
+          }
+          setLoadingSettings(false);
+      };
+      getSettings();
+  }, []);
+
+  // 2. Load Transaction History
+  useEffect(() => {
     if (!user || !db) return;
     
     const q = query(
@@ -86,7 +97,6 @@ const AddFunds: React.FC = () => {
     const cleanUtr = utr.trim();
 
     try {
-      // 1. Create Pending Request
       await addDoc(collection(db, 'transactions'), {
         userId: user.uid,
         userEmail: user.email,
@@ -98,14 +108,12 @@ const AddFunds: React.FC = () => {
         method: 'UPI_QR'
       });
       
-      // 2. Trigger Auto Verification
       setAmount('');
       setUtr('');
       await checkAutoVerify(cleanUtr);
       
     } catch (e: any) {
       alert("Error submitting transaction: " + e.message);
-      setSubmitting(false);
     } finally {
       setSubmitting(false);
     }
@@ -150,13 +158,20 @@ const AddFunds: React.FC = () => {
                 <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/20 rounded-full blur-3xl -mr-10 -mt-10"></div>
                 
                 <h3 className="font-bold mb-4 uppercase tracking-wider text-xs text-slate-400">Scan to Pay via UPI</h3>
-                <div className="bg-white p-3 rounded-xl inline-block shadow-lg border-4 border-white/20">
-                     <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=225x225&data=${encodeURIComponent(`upi://pay?pa=${upiId}&pn=SocialBoost&am=${amount}`)}`}
-                        alt="UPI QR" 
-                        className="w-40 h-40 mix-blend-multiply"
-                     />
-                </div>
+                
+                {loadingSettings ? (
+                     <div className="w-40 h-40 mx-auto flex items-center justify-center">
+                         <Loader2 className="animate-spin text-white" />
+                     </div>
+                ) : (
+                    <div className="bg-white p-3 rounded-xl inline-block shadow-lg border-4 border-white/20">
+                        <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=225x225&data=${encodeURIComponent(`upi://pay?pa=${upiId}&pn=SocialBoost&am=${amount}`)}`}
+                            alt="UPI QR" 
+                            className="w-40 h-40 mix-blend-multiply"
+                        />
+                    </div>
+                )}
                 
                 <div className="mt-6 flex items-center justify-between bg-white/10 rounded-lg p-3 backdrop-blur-md border border-white/10">
                     <span className="font-mono text-sm">{upiId}</span>
@@ -182,7 +197,6 @@ const AddFunds: React.FC = () => {
                         required
                       />
                    </div>
-                   {/* Presets */}
                    <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
                       {[100, 200, 500, 1000, 2000].map(val => (
                           <button 
@@ -198,7 +212,7 @@ const AddFunds: React.FC = () => {
                 </div>
 
                 <div>
-                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Transaction ID (UTR / Ref No.)</label>
+                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Transaction ID (UTR)</label>
                    <input 
                      type="text" 
                      value={utr}
@@ -207,9 +221,6 @@ const AddFunds: React.FC = () => {
                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm text-slate-900 outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 transition-all"
                      required
                    />
-                   <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
-                      <ShieldCheck size={12} /> Verification required to update balance.
-                   </p>
                 </div>
 
                 <button 
@@ -222,7 +233,7 @@ const AddFunds: React.FC = () => {
             </form>
 
             {status && (
-                <div className={`mt-4 p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${
+                <div className={`mt-4 p-4 rounded-xl flex items-center gap-3 border ${
                     status.type === 'verifying' ? 'bg-blue-50 text-blue-800 border-blue-200' : 
                     status.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
                     'bg-amber-50 text-amber-800 border-amber-200'
@@ -242,7 +253,6 @@ const AddFunds: React.FC = () => {
                    <Smartphone className="text-slate-400 mt-0.5" size={16} />
                    <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
                       <span className="font-bold">Auto-Verification:</span> System scans for incoming Bank SMS matching the UTR. 
-                      Ensure you use the correct UTR from your UPI app.
                    </p>
                </div>
             </div>
@@ -299,7 +309,7 @@ const AddFunds: React.FC = () => {
                                 </div>
                             </div>
                             
-                            {/* Manual Re-check Button for Pending Items */}
+                            {/* Manual Re-check Button */}
                             {tx.status === 'PENDING' && (
                                 <div className="mt-3 pl-14">
                                     <button 

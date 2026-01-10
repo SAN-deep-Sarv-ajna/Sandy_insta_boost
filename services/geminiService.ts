@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 export const getMarketingAdvice = async (query: string, platform: string): Promise<string> => {
   // Initialize GoogleGenAI with the specific GEMINI Key.
   // This key is safe to be public (it can only generate text, not spend money).
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
     const prompt = `
@@ -14,7 +14,7 @@ export const getMarketingAdvice = async (query: string, platform: string): Promi
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Using flash model for speed and cost efficiency
+      model: 'gemini-3-flash-preview', // Using flash model for speed and cost efficiency
       contents: prompt,
     });
 
