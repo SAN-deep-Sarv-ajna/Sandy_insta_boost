@@ -18,7 +18,8 @@ import {
   ListOrdered,
   Lock,
   Package,
-  Crown
+  Crown,
+  MapPin
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -169,8 +170,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <div className="pt-6 border-t border-slate-800/50">
             <div className="flex flex-col items-center text-center">
-                <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider">Engineered by</p>
-                <p className="text-xs font-bold text-slate-300 mt-1">Sandeep (Chakia)</p>
+                <p className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-2 flex items-center gap-1">
+                   <MapPin size={10} /> Engineered By
+                </p>
+                <div className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700/50 px-4 py-2 rounded-xl shadow-inner w-full">
+                    <p className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-300 via-indigo-300 to-purple-300 tracking-wide drop-shadow-sm">
+                        East Champaran (Bihar)
+                    </p>
+                </div>
             </div>
           </div>
         </div>
