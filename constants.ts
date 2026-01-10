@@ -1,45 +1,28 @@
 import { Platform, Service, ServiceType, Order, OrderStatus, UserStats } from './types';
 
 // ===========================================================================
-// ⚙️ GLOBAL APP CONFIGURATION (EDIT THIS FOR DISTRIBUTION)
+// ⚙️ GLOBAL APP CONFIGURATION
 // ===========================================================================
 export const APP_CONFIG = {
   // Your Brand Name
   APP_NAME: "SocialBoost IN", 
   
-  // Your WhatsApp Number (Format: CountryCode+Number, e.g., 919876543210)
+  // Your WhatsApp Number
   WHATSAPP_NUMBER: "917494019807", 
   
-  // Security PIN to access Admin Settings/API Features (Backup access)
-  // ⚠️ CHANGE THIS BEFORE SHARING!
+  // Security PIN (Backup access for Local Settings only)
   ADMIN_PIN: "jokr", 
 
-  // 👑 OWNER IDENTITY (CRITICAL)
-  // Enter your Google Email here. When you login with this email, 
-  // you will automatically get Admin Access without needing the PIN.
-  ADMIN_EMAIL: "sandeep@gmail.com", // <--- ⚠️ CHANGE THIS TO YOUR EXACT GMAIL ADDRESS
-
-  // If true, the app acts as a Catalog/WhatsApp Order bot by default.
-  // You must enter the PIN in Settings to unlock API features.
+  // Default mode
   CLIENT_MODE_DEFAULT: true,
 
-  // ⚠️ CRITICAL FOR AUTOMATION:
-  // Paste your SMMDevil (or Provider) API Key here.
-  // This allows clients to place orders automatically using their Wallet Balance.
-  // If empty, clients can only order via WhatsApp.
+  // Provider API Key (SMMDevil)
   PROVIDER_API_KEY: "" 
 };
 
 // ===========================================================================
-// 📦 PUBLIC CATALOG (SERVICES VISIBLE TO CLIENTS)
+// 📦 PUBLIC CATALOG
 // ===========================================================================
-// HOW TO UPDATE PRICES:
-// 1. Go to Settings > Admin Unlocked
-// 2. Click "Generate Public Catalog"
-// 3. Copy the output and paste it below, replacing MOCK_SERVICES.
-// This ensures your clients see the Safe Price (Cost + 50% Margin).
-
-// Paste this into constants.ts replacing MOCK_SERVICES
 export const MOCK_SERVICES: Service[] = [
   {
     "id": 1296,

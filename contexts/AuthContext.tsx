@@ -5,10 +5,8 @@ import {
   signOut as firebaseSignOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../lib/firebase';
-import { isAdminUnlocked, setAdminUnlocked } from '../services/smmProvider';
-import { APP_CONFIG } from '../constants';
 
 interface UserData {
   uid: string;
@@ -38,15 +36,11 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(isAdminUnlocked());
 
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setIsAdmin(isAdminUnlocked());
-    };
-    window.addEventListener('smm_settings_updated', handleStorageChange);
-    return () => window.removeEventListener('smm_settings_updated', handleStorageChange);
-  }, []);
+  // 👑 ADMIN LOGIC: 
+  // We check if the database document has role: 'admin'.
+  // This allows you to manage admins purely from Firebase Console.
+  const isAdmin = !!user && user.role === 'admin';
 
   useEffect(() => {
     if (!auth || !db) {
@@ -56,44 +50,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        
-        // 🔒 SECURITY: Check if this is the Hardcoded Owner Email
-        const isOwnerEmail = firebaseUser.email === APP_CONFIG.ADMIN_EMAIL;
-
-        if (isOwnerEmail) {
-            console.log("👑 Owner Logged In: Granting Admin Access");
-            setAdminUnlocked(true);
-            setIsAdmin(true);
-        }
-
         const userRef = doc(db, 'users', firebaseUser.uid);
         
+        // Listen to Database Changes in Real-Time
         const unsubscribeSnapshot = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
             const userData = docSnap.data();
             
-            // 🛡️ DOUBLE CHECK: If email matches Owner but DB role is 'user', fix it.
-            // This ensures the database knows you are the admin for Security Rules logic.
-            if (isOwnerEmail && userData.role !== 'admin') {
-                updateDoc(userRef, { role: 'admin' }).catch(console.error);
-            }
-
             setUser({
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL,
               balance: userData.balance || 0,
-              role: userData.role || (isOwnerEmail ? 'admin' : 'user')
+              role: userData.role || 'user' // Default to 'user' if not set
             });
           } else {
-            // Create New User
+            // New User Registration
             const newUser = {
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
               photoURL: firebaseUser.photoURL,
               balance: 0,
-              role: isOwnerEmail ? 'admin' : 'user', // Set role immediately if matches
+              role: 'user', // Everyone starts as a User
               createdAt: new Date().toISOString()
             };
             setDoc(userRef, newUser);

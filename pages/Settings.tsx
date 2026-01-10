@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Save, Key, Globe, ShieldCheck, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, RefreshCw, Zap, Tag, Eye, EyeOff, Lock, QrCode, Copy, Check, LogOut, Unlock, FileJson } from 'lucide-react';
 import { getStoredSettings, saveSettings, getBalance, fetchLiveRate, isAdminUnlocked, setAdminUnlocked, fetchProviderServices } from '../services/smmProvider';
@@ -169,8 +168,8 @@ const Settings: React.FC = () => {
                   <div className="w-20 h-20 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-slate-900/20">
                       <Lock size={36} className="text-white" />
                   </div>
-                  <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter">Admin Access</h2>
-                  <p className="text-slate-500 text-sm mb-8 font-medium">Enter the security PIN to configure API settings.</p>
+                  <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter">Configuration Access</h2>
+                  <p className="text-slate-500 text-sm mb-8 font-medium">Enter the security PIN to configure API Keys.</p>
                   
                   <form onSubmit={handleLogin} className="space-y-6">
                       <input 
@@ -190,7 +189,7 @@ const Settings: React.FC = () => {
                       </button>
                   </form>
                   <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      Default PIN is set in <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-600 font-mono">constants.ts</code>
+                      This only unlocks local settings. It does <span className="text-rose-500">NOT</span> grant Admin Access to funds.
                   </p>
               </div>
           </div>
@@ -204,7 +203,7 @@ const Settings: React.FC = () => {
           <div>
             <h2 className="text-3xl font-black text-slate-900 flex items-center gap-3 tracking-tighter">
                 Configuration
-                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200 tracking-wide uppercase">Admin Unlocked</span>
+                <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full border border-amber-200 tracking-wide uppercase">Local Config</span>
             </h2>
             <p className="text-slate-500 mt-2 text-lg font-medium">Connect provider API and manage store settings.</p>
           </div>

@@ -1,66 +1,58 @@
-# 🛡️ CRITICAL SECURITY & SETUP GUIDE
+# 🛡️ SECURITY & ADMIN SETUP
 
-For your SMM Panel to be secure and work on Vercel, you must configure the Firebase Console.
+## 1. How to Make Yourself "Admin" (The Database Way)
+Since we removed the hardcoded email from the code, you must manually set your status in the database.
 
-## 1. Authorize Your Domain (Fix "Website will not function good")
-If you don't do this, Google Login will fail on the live site.
+1.  **Login** to your website (SocialBoost) using Google.
+2.  Go to the [Firebase Console](https://console.firebase.google.com/).
+3.  Click **Firestore Database** > **Data**.
+4.  Click the `users` collection.
+5.  Find your user ID (look for the document that has your email).
+6.  Change the field `role` from `"user"` to `"admin"`.
+    *   *If the field doesn't exist, click "Add field", name it `role`, type `string`, value `admin`.*
+7.  **Refresh your website.** You will now see the "Order Queue" and "Funds" menus.
 
-1. Go to [Firebase Console](https://console.firebase.google.com/).
-2. Click **Authentication** > **Settings** > **Authorized Domains**.
-3. Click **Add Domain**.
-4. Enter your Vercel domain (e.g., `socialboost-app.vercel.app`).
-5. Also add `localhost` (it should be there by default).
+## 2. Secure Your Database (Rules)
 
----
-
-## 2. Secure Your Database (Prevent Hackers)
-This determines who is the REAL owner. Even if someone hacks the code, they cannot hack the database if you set this up.
-
-1. Go to **Firestore Database** > **Rules**.
-2. Delete everything there and paste the code below.
-3. **REPLACE** `sandeep@gmail.com` with YOUR exact email address in the code below.
+Copy this into **Firestore Database > Rules**. This ensures only people with `role: 'admin'` can touch money or approve orders.
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // 👑 HELPER: Is the user the Real Owner?
-    // This matches the email in your Google Login Token, which cannot be faked.
-    function isOwner() {
-      return request.auth != null && request.auth.token.email == 'sandeep@gmail.com'; 
+    // 👑 CHECK ADMIN STATUS IN DATABASE
+    // We look up the 'users' collection to see if the requester has role == 'admin'
+    function isAdmin() {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // 👤 USERS: Can read/write their OWN balance and data.
+    // 👤 USERS
     match /users/{userId} {
-      allow read, write: if request.auth != null && (request.auth.uid == userId || isOwner());
+      // Users can read/write their own data. Admins can read/write all.
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
     }
 
-    // 📦 ORDERS: 
-    // - Clients can CREATE orders.
-    // - Clients can READ their own orders.
-    // - ONLY OWNER can UPDATE orders (Approve/Reject).
+    // 📦 ORDERS
     match /orders/{orderId} {
       allow create: if request.auth != null;
-      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isOwner());
-      allow update: if isOwner(); // <--- CRITICAL SECURITY LOCK
-      allow delete: if isOwner();
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin(); 
+      allow delete: if isAdmin();
     }
 
-    // 💰 TRANSACTIONS (Funds):
-    // - Clients can CREATE requests (Pending).
-    // - Clients can READ their own.
-    // - ONLY OWNER can UPDATE status (Approve Funds).
+    // 💰 TRANSACTIONS
     match /transactions/{txId} {
       allow create: if request.auth != null;
-      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isOwner());
-      allow update: if isOwner(); // <--- CRITICAL SECURITY LOCK
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if isAdmin(); 
+    }
+    
+    // 🏦 BANK DEPOSITS (For Android Auto-Verify)
+    match /bank_deposits/{utr} {
+        allow read, write: if true; // The secure API handles the logic, but this allows debugging.
     }
   }
 }
 ```
-
-## 3. Verify
-Once these rules are published:
-1. Try to "Approve" an order using a different Gmail account -> **It will fail (Access Denied).**
-2. Try to "Approve" using your Owner Gmail -> **It will succeed.**

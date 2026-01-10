@@ -17,7 +17,8 @@ import {
   User,
   ListOrdered,
   Lock,
-  Package
+  Package,
+  Crown
 } from 'lucide-react';
 import { getStoredSettings, SETTINGS_UPDATED_EVENT } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
@@ -100,13 +101,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <div className="p-6 flex flex-col h-[calc(100%-5rem)] overflow-y-auto">
           {/* User Profile / Login Section */}
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 mb-6 shrink-0 backdrop-blur-sm">
+          <div className={`border rounded-xl p-4 mb-6 shrink-0 backdrop-blur-sm transition-colors ${isAdmin ? 'bg-indigo-900/40 border-indigo-500/30' : 'bg-slate-800/50 border-slate-700/50'}`}>
             {user ? (
                 <div className="space-y-3">
                    <div className="flex items-center gap-3">
                        <img src={user.photoURL || "https://ui-avatars.com/api/?name=User&background=random"} alt="User" className="w-10 h-10 rounded-full border-2 border-slate-700" />
                        <div className="overflow-hidden">
-                           <p className="text-white font-bold text-sm truncate">{user.displayName || 'Client'}</p>
+                           <p className="text-white font-bold text-sm truncate flex items-center gap-2">
+                             {user.displayName || 'Client'}
+                             {isAdmin && <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 shadow-sm"><Crown size={8} fill="currentColor" /> OWNER</span>}
+                           </p>
                            <p className="text-slate-400 text-xs truncate">{user.email}</p>
                        </div>
                    </div>

@@ -15,8 +15,8 @@ const NewOrder: React.FC = () => {
   const [displayedServices, setDisplayedServices] = useState<Service[]>(MOCK_SERVICES);
   
   const [isLoading, setIsLoading] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const { user, signInWithGoogle } = useAuth();
+  const [isAdminMode, setIsAdminMode] = useState(false); // UI Toggle State
+  const { user, signInWithGoogle, isAdmin } = useAuth(); // 🔒 Use secure isAdmin from Context
   const navigate = useNavigate();
   
   const [viewMode, setViewMode] = useState<'ADMIN' | 'CLIENT'>('CLIENT');
@@ -37,17 +37,19 @@ const NewOrder: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    const adminStatus = isAdminUnlocked();
-    setIsAdmin(adminStatus);
+    // 🔒 SECURITY: Only allow Admin Mode if the User is actually an Admin in Firebase
+    setIsAdminMode(isAdmin);
     
-    if(adminStatus && getStoredSettings().apiKey) {
+    // We still check 'isAdminUnlocked' (PIN) just to see if we can Fetch the API list (requires key)
+    // But the ability to SEE the toggle is now restricted to real admins.
+    if(isAdmin && isAdminUnlocked() && getStoredSettings().apiKey) {
       loadApiServices();
       setViewMode('ADMIN');
     } else {
       setViewMode('CLIENT');
       setDisplayedServices(MOCK_SERVICES);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (viewMode === 'ADMIN' && liveServices.length > 0) {
@@ -216,6 +218,9 @@ const NewOrder: React.FC = () => {
 
   // ADMIN FORCE ORDER (Direct API, bypasses wallet)
   const handleAdminOrder = async () => {
+    // 🔒 Extra Security Check
+    if (!isAdmin) return alert("Security Alert: Access Denied.");
+
     if (!currentService || !quantity || !link) return alert("Fill all fields");
     if (!window.confirm("Place Direct API Order (Bypass Wallet)?")) return;
     setPlacingOrder(true);
@@ -235,8 +240,8 @@ const NewOrder: React.FC = () => {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="lg:col-span-2 space-y-6">
         
-        {/* ADMIN CONTROLS */}
-        {isAdmin && (
+        {/* ADMIN CONTROLS (Only visible to Verified Admins) */}
+        {isAdminMode && (
             <div className="bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-lg border border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                      <div className="bg-brand-500/20 p-2 rounded-lg"><ShieldCheck className="text-brand-400" size={20} /></div>
