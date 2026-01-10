@@ -5,8 +5,8 @@ import { TrendingUp, Info, Check, Server, XCircle, ShieldCheck, ShoppingBag, Loa
 import { fetchProviderServices, placeProviderOrder, fetchPublicSettings, fetchPrivateSettings } from '../services/smmProvider';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
-import { doc, runTransaction, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+// import { db } from '../lib/firebase'; // Removed direct DB import for orders
+// import { doc, runTransaction, collection, addDoc, serverTimestamp } from 'firebase/firestore'; // Removed client-side transaction logic
 
 const NewOrder: React.FC = () => {
   // Services State
@@ -43,7 +43,6 @@ const NewOrder: React.FC = () => {
       loadAdminData();
     } else {
       setDisplayedServices(MOCK_SERVICES);
-      // Optional: We could fetch public exchange rates here if MOCK_SERVICES were dynamic.
     }
   }, [isAdmin]);
 
@@ -138,6 +137,7 @@ const NewOrder: React.FC = () => {
     }
   }, [quantity, currentService, manualDiscount]);
 
+  // 🔒 SECURE ORDER PLACEMENT (VIA SERVER API)
   const handlePurchase = async () => {
     if (!user) {
         alert("Please login first to place an order.");
@@ -146,7 +146,6 @@ const NewOrder: React.FC = () => {
     if (!currentService) return alert("Select service");
     if (!quantity || quantity < currentService.min || quantity > currentService.max) return alert(`Quantity must be between ${currentService.min} and ${currentService.max}`);
     if (!link) return alert("Enter link");
-    if (!db) return alert("Database error.");
 
     if (user.balance < charge) {
         return alert(`Insufficient Balance! You need ₹${formatINR(charge - user.balance)} more.`);
@@ -158,46 +157,36 @@ const NewOrder: React.FC = () => {
     setOrderResult(null);
 
     try {
-        await runTransaction(db, async (transaction) => {
-            const userRef = doc(db, 'users', user.uid);
-            const userDoc = await transaction.get(userRef);
-            
-            if (!userDoc.exists()) throw "User does not exist!";
-            
-            const currentBalance = userDoc.data().balance || 0;
-            
-            if (currentBalance < charge) {
-                throw "Insufficient funds during transaction.";
-            }
-
-            const newBalance = currentBalance - charge;
-            transaction.update(userRef, { balance: newBalance });
+        // 🚀 CALL SECURE SERVER API
+        const response = await fetch('/api/place_order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                userId: user.uid,
+                userEmail: user.email,
+                userName: user.displayName, // Send name for transaction log
+                serviceId: currentService.id,
+                serviceName: currentService.name,
+                platform: currentService.platform,
+                link: link,
+                quantity: quantity
+            })
         });
 
-        await addDoc(collection(db, 'orders'), {
-            userId: user.uid,
-            userEmail: user.email,
-            serviceId: currentService.id,
-            serviceName: currentService.name,
-            platform: currentService.platform,
-            link: link,
-            quantity: quantity,
-            charge: charge,
-            status: 'PENDING_APPROVAL', // Status for Admin Queue
-            createdAt: serverTimestamp()
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Server Error');
+        }
+
+        setOrderResult({ 
+            success: true, 
+            message: `Order Placed Successfully! ID: ${data.orderId}` 
         });
         
-        await addDoc(collection(db, 'transactions'), {
-            userId: user.uid,
-            userName: user.displayName || 'User', // 🟢 Added Username
-            amount: charge,
-            type: 'DEBIT',
-            reason: `Order Queue (Service #${currentService.id})`,
-            createdAt: serverTimestamp(),
-            status: 'COMPLETED'
-        });
-
-        setOrderResult({ success: true, message: `Order Queued! Waiting for Admin Approval.` });
+        // Reset Form
         setQuantity(0);
         setLink('');
 
@@ -215,7 +204,7 @@ const NewOrder: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  // ADMIN FORCE ORDER (Direct API, bypasses wallet)
+  // ADMIN FORCE ORDER (Direct API, bypasses wallet - Only for debugging)
   const handleAdminOrder = async () => {
     if (!isAdmin) return alert("Security Alert: Access Denied.");
 
@@ -344,7 +333,7 @@ const NewOrder: React.FC = () => {
             
             {viewMode === 'CLIENT' && user && user.balance >= charge && (
                 <p className="text-[10px] text-center text-slate-400 font-medium">
-                    Order will be queued for Admin approval. Money is held safely.
+                    Order will be processed securely. Your balance will be deducted automatically.
                 </p>
             )}
 
