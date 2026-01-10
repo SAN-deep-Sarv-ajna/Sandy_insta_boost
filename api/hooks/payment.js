@@ -22,31 +22,34 @@ function parseBankSMS(text) {
     const cleanText = text.toString().toLowerCase(); 
 
     // 🛡️ SECURITY STEP 1: BLOCK DEBIT MESSAGES
-    const debitKeywords = ['debited', 'deducted', 'sent to', 'paid to', 'transfer to', 'withdrawn', 'payment of'];
-    // We strictly look for "Credited" indicators to avoid confusing "Payment of Rs X successful" (which is debit)
+    // We removed 'payment of' from this list because Business SMS often start with "Payment of Rs X received"
+    const debitKeywords = ['debited', 'deducted', 'sent to', 'paid to', 'transfer to', 'withdrawn'];
+    
     if (debitKeywords.some(word => cleanText.includes(word))) {
         console.log("🛑 Blocked DEBIT/OUTGOING SMS");
         return null;
     }
 
     // 🛡️ SECURITY STEP 2: REQUIRE CREDIT KEYWORDS
-    const creditKeywords = ['credited', 'received', 'deposited', 'added to', 'credit'];
+    // Added 'collected' and 'received' for Merchant Apps
+    const creditKeywords = ['credited', 'received', 'deposited', 'added to', 'credit', 'collected', 'payment from'];
     if (!creditKeywords.some(word => cleanText.includes(word))) {
-        console.log("⚠️ Ignored SMS: Missing 'Credited' keyword");
+        console.log("⚠️ Ignored SMS: Missing 'Credited/Received' keyword");
         return null;
     }
 
     // 1. Extract Amount
-    // Handles: Rs. 100, Rs 100, INR 100, INR.100, Amt 100, Credited with 100
-    const amountRegex = /(?:Rs\.?|INR|Amt|Amount|with)[.\s:-]*([\d,]+(?:\.\d{1,2})?)/i;
+    // Updated to support '₹' symbol and 'Payment of' context
+    // Matches: ₹500, Rs. 500, INR 500, Amt 500
+    const amountRegex = /(?:Rs\.?|INR|Amt|Amount|with|Payment of|₹)[.\s:-]*([\d,]+(?:\.\d{1,2})?)/i;
     const amountMatch = text.match(amountRegex); 
     
-    // 2. Extract UTR (12 Digits) - ENHANCED FOR ICICI / CENTRAL BANK
+    // 2. Extract UTR (12 Digits) - ENHANCED FOR BUSINESS APPS
     let utr = null;
 
-    // Priority A: Look for labeled UTRs (Common in ICICI/Central/HDFC)
-    // Matches: "UPI-123...", "Ref 123...", "UTR: 123..."
-    const strictUtrRegex = /(?:UPI|Ref|UTR|CMS|IMPS|No|Id)[\s:-]*(\d{12})\b/i;
+    // Priority A: Look for labeled UTRs 
+    // PhonePe Business often uses "Bank Ref" or "TxnId" or "Ref No"
+    const strictUtrRegex = /(?:UPI|Ref|UTR|CMS|IMPS|No|Id|Txn|Bank Ref)[\s:-]*(\d{12})\b/i;
     const strictMatch = text.match(strictUtrRegex);
 
     if (strictMatch) {
