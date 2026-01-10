@@ -121,31 +121,31 @@ const TrackOrder: React.FC = () => {
   };
 
   return (
-    <div className="max-w-xl mx-auto space-y-10 py-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-xl mx-auto space-y-10 py-6 md:py-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="text-center space-y-3">
         <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
             <Activity className="text-brand-600" size={32} />
         </div>
-        <h2 className="text-3xl font-black text-slate-900 tracking-tighter">
+        <h2 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter">
           Track Your Order
         </h2>
-        <p className="text-slate-500 text-lg font-medium">Enter your Order ID to check real-time progress.</p>
+        <p className="text-slate-500 text-sm md:text-lg font-medium">Enter your Order ID to check real-time progress.</p>
       </div>
 
-      <div className="bg-white p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100">
-        <form onSubmit={handleSubmit} className="flex gap-3">
+      <div className="bg-white p-5 md:p-8 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100">
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
             value={orderId}
             onChange={(e) => setOrderId(e.target.value)}
             placeholder="Enter Order ID (e.g. 5x8s...)"
-            className="flex-1 p-4 border border-slate-200 rounded-xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none font-mono text-lg font-bold text-slate-800 transition-all placeholder:font-sans placeholder:font-normal placeholder:text-slate-400"
+            className="flex-1 p-4 border border-slate-200 rounded-xl focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none font-mono text-base md:text-lg font-bold text-slate-800 transition-all placeholder:font-sans placeholder:font-normal placeholder:text-slate-400"
             autoFocus
           />
           <button
             type="submit"
             disabled={loading || !orderId}
-            className="bg-slate-900 text-white px-8 rounded-xl font-bold hover:bg-brand-600 disabled:opacity-50 transition-all shadow-lg shadow-slate-900/10 active:scale-95 flex items-center gap-2 uppercase tracking-wide text-xs"
+            className="bg-slate-900 text-white w-full sm:w-auto px-8 py-4 sm:py-0 rounded-xl font-bold hover:bg-brand-600 disabled:opacity-50 transition-all shadow-lg shadow-slate-900/10 active:scale-95 flex items-center justify-center gap-2 uppercase tracking-wide text-xs"
           >
             {loading ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
             <span>Check</span>
@@ -178,12 +178,12 @@ const TrackOrder: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-[10px] font-extrabold uppercase opacity-70 block mb-0.5 tracking-widest">Current Status</span>
-                  <span className="text-xl font-black capitalize tracking-tight">{result.status}</span>
+                  <span className="text-lg md:text-xl font-black capitalize tracking-tight leading-tight">{result.status}</span>
                 </div>
               </div>
               <div className="text-right">
                 <span className="text-[10px] font-extrabold uppercase opacity-70 block mb-0.5 tracking-widest">Order ID</span>
-                <span className="font-mono font-bold text-xl">
+                <span className="font-mono font-bold text-lg md:text-xl">
                     #{orderId.length > 8 ? orderId.slice(0,6) + '..' : orderId}
                 </span>
               </div>
