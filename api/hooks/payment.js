@@ -16,20 +16,36 @@ if (!getApps().length) {
 
 const db = getApps().length ? getFirestore() : null;
 
-// --- SMART PARSER FOR INDIAN BANKS ---
+// --- SMART SECURE PARSER ---
 function parseBankSMS(text) {
     if (!text) return null;
-    const cleanText = text.toString();
+    const cleanText = text.toString().toLowerCase(); // Normalize to lowercase for checking
+
+    // 🛡️ SECURITY STEP 1: BLOCK DEBIT MESSAGES
+    // If the SMS says "debited", "deducted", or "paid", we IGNORE it immediately.
+    const debitKeywords = ['debited', 'deducted', 'sent to', 'paid to', 'transfer to', 'withdrawn'];
+    if (debitKeywords.some(word => cleanText.includes(word))) {
+        console.log("🛑 Blocked DEBIT Transaction SMS");
+        return null;
+    }
+
+    // 🛡️ SECURITY STEP 2: REQUIRE CREDIT KEYWORDS
+    // The SMS MUST contain one of these words to be accepted.
+    const creditKeywords = ['credited', 'received', 'deposited', 'added to'];
+    if (!creditKeywords.some(word => cleanText.includes(word))) {
+        console.log("⚠️ Ignored SMS: Missing 'Credited' keyword");
+        return null;
+    }
 
     // 1. Extract Amount (Look for Rs, INR, or just numbers preceded by 'credited')
     // Matches: Rs 500, INR 500.00, Rs.500
     const amountRegex = /(?:Rs\.?|INR|Amt)[.\s]*([\d,]+(?:\.\d{1,2})?)/i;
-    const amountMatch = cleanText.match(amountRegex);
+    const amountMatch = text.match(amountRegex); // Use original text for case-sensitive regex if needed
     
     // 2. Extract UTR (12 Digits)
     // Most reliable way: Look for exactly 12 digits in a row
     const utrRegex = /\b\d{12}\b/;
-    const utrMatch = cleanText.match(utrRegex);
+    const utrMatch = text.match(utrRegex);
 
     if (amountMatch && utrMatch) {
         return {
@@ -86,8 +102,11 @@ export default async function handler(req, res) {
               utr = extracted.utr;
               amount = extracted.amount;
           } else {
-              console.log("❌ Could not extract UTR/Amount");
-              return res.status(400).json({ error: 'Could not extract UTR/Amount from SMS text' });
+              // If it failed extraction (e.g. it was a Debit message), we return 200 OK 
+              // but with success: false. This tells the App "We got it, but we don't use it".
+              // If we send 400 error, the App might retry sending the debit message repeatedly.
+              console.log("❌ Extraction Skipped (Debit or Invalid Format)");
+              return res.status(200).json({ success: false, message: 'SMS Ignored (Debit or Invalid)' });
           }
       }
 
