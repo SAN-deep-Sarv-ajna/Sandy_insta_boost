@@ -3,7 +3,7 @@ import { QrCode, Copy, Check, ShieldCheck, History, Wallet, Loader2, RefreshCw, 
 import { fetchPublicSettings } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, getDocs, updateDoc, doc } from 'firebase/firestore';
 
 const AddFunds: React.FC = () => {
   const { user, signInWithGoogle } = useAuth();
@@ -61,10 +61,10 @@ const AddFunds: React.FC = () => {
 
     setSubmitting(true);
     const cleanUtr = utr.trim();
+    const numAmount = parseFloat(amount);
 
     try {
-      // 🛡️ SECURITY CHECK: DUPLICATE UTR PREVENTION
-      // Check if ANY user has used this UTR, or if this user submitted it before
+      // 🛡️ SECURITY CHECK: SMART UTR HANDLING
       const duplicateQuery = query(
           collection(db, 'transactions'), 
           where('utr', '==', cleanUtr)
@@ -72,20 +72,52 @@ const AddFunds: React.FC = () => {
       const duplicateSnap = await getDocs(duplicateQuery);
 
       if (!duplicateSnap.empty) {
-          // Check if it was rejected (allow retry) or if it's pending/completed (block)
-          const existing = duplicateSnap.docs[0].data();
-          if (existing.status !== 'REJECTED') {
-              alert(`⚠️ Security Alert\n\nThis UTR (${cleanUtr}) is already in the system as ${existing.status}.\n\nPlease do not submit duplicate requests.`);
+          const existingDoc = duplicateSnap.docs[0];
+          const existingData = existingDoc.data();
+
+          // CASE 1: UTR is ALREADY USED (Money added) -> BLOCK IT
+          if (existingData.status === 'COMPLETED') {
+              alert(`⛔ SECURITY BLOCK\n\nThis UTR (${cleanUtr}) has already been used and funds were added.\n\nYou cannot use the same UTR twice.`);
               setSubmitting(false);
               return;
           }
+
+          // CASE 2: UTR is PENDING (User made a mistake or re-submitting) -> UPDATE IT
+          if (existingData.status === 'PENDING' || existingData.status === 'REJECTED') {
+              // Ensure it belongs to the same user (Security against claim sniping)
+              if (existingData.userId !== user.uid) {
+                  alert("⚠️ This UTR is currently being processed by another user. Contact support.");
+                  setSubmitting(false);
+                  return;
+              }
+
+              const confirmUpdate = window.confirm(
+                  `Existing Request Found!\n\nStatus: ${existingData.status}\nOld Amount: ₹${existingData.amount}\n\nDo you want to UPDATE it to ₹${numAmount}?`
+              );
+
+              if (confirmUpdate) {
+                  await updateDoc(doc(db, 'transactions', existingDoc.id), {
+                      amount: numAmount,
+                      status: 'PENDING', // Reset to Pending so Admin/Bot checks it again
+                      createdAt: serverTimestamp() // Bump to top of list
+                  });
+                  alert(`Request Updated Successfully!\n\nNew Amount: ₹${numAmount}\n\nWaiting for SMS...`);
+                  setAmount('');
+                  setUtr('');
+                  setSubmitting(false);
+                  return;
+              } else {
+                  setSubmitting(false);
+                  return;
+              }
+          }
       }
 
-      // 1. Create PENDING Transaction in Database
+      // CASE 3: NEW UTR -> CREATE IT
       await addDoc(collection(db, 'transactions'), {
         userId: user.uid,
         userEmail: user.email,
-        amount: parseFloat(amount),
+        amount: numAmount,
         utr: cleanUtr,
         type: 'CREDIT',
         status: 'PENDING',
@@ -96,7 +128,6 @@ const AddFunds: React.FC = () => {
       setAmount('');
       setUtr('');
       
-      // 2. Smooth UX
       alert(`Request Submitted!\n\nSystem is waiting for Bank SMS (approx 1-5 mins).\n\nYour balance will update AUTOMATICALLY once the SMS arrives.`);
       
     } catch (e: any) {
