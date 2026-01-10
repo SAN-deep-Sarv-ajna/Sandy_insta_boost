@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { QrCode, Copy, Check, ShieldCheck, History, Wallet, Loader2, RefreshCw, Smartphone, AlertTriangle, Clock } from 'lucide-react';
+import { QrCode, Copy, Check, ShieldCheck, History, Wallet, Loader2, RefreshCw, Smartphone, AlertTriangle, Clock, RefreshCcw } from 'lucide-react';
 import { fetchPublicSettings } from '../services/smmProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
@@ -15,6 +15,7 @@ const AddFunds: React.FC = () => {
   const [amount, setAmount] = useState<string>('');
   const [utr, setUtr] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null); // For manual check button
   const [copied, setCopied] = useState(false);
   
   const [history, setHistory] = useState<any[]>([]);
@@ -52,6 +53,31 @@ const AddFunds: React.FC = () => {
     navigator.clipboard.writeText(upiId);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // --- FORCE CHECK FUNCTION ---
+  const checkPaymentStatus = async (txId: string, utr: string, amount: number) => {
+      setVerifyingId(txId);
+      try {
+          const response = await fetch('/api/verify_payment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: user?.uid, utr, amount })
+          });
+          
+          const data = await response.json();
+          if (data.success) {
+              alert("✅ Success: Funds have been added to your wallet!");
+          } else {
+              // Only alert if it's a manual click, otherwise just log
+              if (txId !== 'AUTO') alert(`ℹ️ Status: ${data.message}`);
+          }
+      } catch (e) {
+          console.error("Verification failed", e);
+          if (txId !== 'AUTO') alert("Connection error. Try again.");
+      } finally {
+          setVerifyingId(null);
+      }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -101,7 +127,11 @@ const AddFunds: React.FC = () => {
                       status: 'PENDING', // Reset to Pending so Admin/Bot checks it again
                       createdAt: serverTimestamp() // Bump to top of list
                   });
-                  alert(`Request Updated Successfully!\n\nNew Amount: ₹${numAmount}\n\nWaiting for SMS...`);
+                  
+                  // 🔥 AUTO CHECK IMMEDIATELY
+                  checkPaymentStatus('AUTO', cleanUtr, numAmount);
+                  
+                  alert(`Request Updated & Checked!\n\nIf funds are not added instantly, wait for 1-2 minutes and click 'Check Status' in history.`);
                   setAmount('');
                   setUtr('');
                   setSubmitting(false);
@@ -126,10 +156,13 @@ const AddFunds: React.FC = () => {
         method: 'UPI_QR'
       });
       
+      // 🔥 AUTO CHECK IMMEDIATELY (Fixes the "SMS arrived before User" race condition)
+      checkPaymentStatus('AUTO', cleanUtr, numAmount);
+      
       setAmount('');
       setUtr('');
       
-      alert(`Request Submitted!\n\nSystem is waiting for Bank SMS (approx 1-5 mins).\n\nYour balance will update AUTOMATICALLY once the SMS arrives.`);
+      alert(`Request Submitted!\n\nWe are checking our bank records.\nIf your payment was successful, your wallet will update shortly.`);
       
     } catch (e: any) {
       alert("Error submitting transaction: " + e.message);
@@ -255,7 +288,7 @@ const AddFunds: React.FC = () => {
                <div className="flex items-start gap-3 opacity-60">
                    <Smartphone className="text-slate-400 mt-0.5" size={16} />
                    <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                      <span className="font-bold">Auto-Verify System:</span> We automatically scan for the Bank SMS. When it arrives (1-5 mins delay), your balance updates instantly.
+                      <span className="font-bold">Auto-Verify System:</span> We scan for the Bank SMS. If the SMS arrived *before* you submitted, your balance updates instantly. Otherwise, it updates when the SMS arrives.
                    </p>
                </div>
             </div>
@@ -305,9 +338,20 @@ const AddFunds: React.FC = () => {
                                         
                                         {/* Informational text for Pending */}
                                         {tx.status === 'PENDING' && (
-                                            <p className="text-[10px] text-amber-600 font-bold mt-1 bg-amber-50 px-2 py-0.5 rounded inline-block">
-                                                Waiting for Bank SMS...
-                                            </p>
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <p className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded inline-block">
+                                                    Waiting for Bank SMS...
+                                                </p>
+                                                {/* Manual Check Button */}
+                                                <button 
+                                                    onClick={() => checkPaymentStatus(tx.id, tx.utr, tx.amount)}
+                                                    disabled={verifyingId === tx.id}
+                                                    className="flex items-center gap-1 bg-white border border-slate-200 text-[9px] font-bold px-2 py-0.5 rounded text-slate-600 hover:bg-slate-100 transition-colors shadow-sm"
+                                                >
+                                                    {verifyingId === tx.id ? <Loader2 size={10} className="animate-spin" /> : <RefreshCcw size={10} />}
+                                                    Check Now
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 </div>

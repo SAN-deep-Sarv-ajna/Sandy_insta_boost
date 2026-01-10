@@ -22,31 +22,46 @@ function parseBankSMS(text) {
     const cleanText = text.toString().toLowerCase(); 
 
     // 🛡️ SECURITY STEP 1: BLOCK DEBIT MESSAGES
-    const debitKeywords = ['debited', 'deducted', 'sent to', 'paid to', 'transfer to', 'withdrawn'];
+    const debitKeywords = ['debited', 'deducted', 'sent to', 'paid to', 'transfer to', 'withdrawn', 'payment of'];
+    // We strictly look for "Credited" indicators to avoid confusing "Payment of Rs X successful" (which is debit)
     if (debitKeywords.some(word => cleanText.includes(word))) {
-        console.log("🛑 Blocked DEBIT Transaction SMS");
+        console.log("🛑 Blocked DEBIT/OUTGOING SMS");
         return null;
     }
 
     // 🛡️ SECURITY STEP 2: REQUIRE CREDIT KEYWORDS
-    const creditKeywords = ['credited', 'received', 'deposited', 'added to'];
+    const creditKeywords = ['credited', 'received', 'deposited', 'added to', 'credit'];
     if (!creditKeywords.some(word => cleanText.includes(word))) {
         console.log("⚠️ Ignored SMS: Missing 'Credited' keyword");
         return null;
     }
 
     // 1. Extract Amount
-    const amountRegex = /(?:Rs\.?|INR|Amt)[.\s]*([\d,]+(?:\.\d{1,2})?)/i;
+    // Handles: Rs. 100, Rs 100, INR 100, INR.100, Amt 100, Credited with 100
+    const amountRegex = /(?:Rs\.?|INR|Amt|Amount|with)[.\s:-]*([\d,]+(?:\.\d{1,2})?)/i;
     const amountMatch = text.match(amountRegex); 
     
-    // 2. Extract UTR (12 Digits)
-    const utrRegex = /\b\d{12}\b/;
-    const utrMatch = text.match(utrRegex);
+    // 2. Extract UTR (12 Digits) - ENHANCED FOR ICICI / CENTRAL BANK
+    let utr = null;
 
-    if (amountMatch && utrMatch) {
+    // Priority A: Look for labeled UTRs (Common in ICICI/Central/HDFC)
+    // Matches: "UPI-123...", "Ref 123...", "UTR: 123..."
+    const strictUtrRegex = /(?:UPI|Ref|UTR|CMS|IMPS|No|Id)[\s:-]*(\d{12})\b/i;
+    const strictMatch = text.match(strictUtrRegex);
+
+    if (strictMatch) {
+        utr = strictMatch[1];
+    } else {
+        // Priority B: Fallback to any 12-digit number (Standard UPI)
+        const looseUtrRegex = /\b\d{12}\b/;
+        const looseMatch = text.match(looseUtrRegex);
+        if (looseMatch) utr = looseMatch[0];
+    }
+
+    if (amountMatch && utr) {
         return {
             amount: parseFloat(amountMatch[1].replace(/,/g, '')),
-            utr: utrMatch[0]
+            utr: utr
         };
     }
     return null;
